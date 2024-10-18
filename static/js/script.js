@@ -1,19 +1,22 @@
+
+
 $(document).ready(function() {
     var socket = io.connect('http://' + document.domain + ':' + location.port);
     var currentData = {};
 
-    // 更新 WebSocket 连接状态
     socket.on('connect', function() {
+        console.log('WebSocket connected successfully.');
         $('#status-indicator').removeClass('status-red').addClass('status-green');
     });
 
     socket.on('disconnect', function() {
+        console.error('WebSocket disconnected.');
         $('#status-indicator').removeClass('status-green').addClass('status-red');
     });
 
-    // 处理接收到的 MQTT 消息
+    // mqtt processing
     socket.on('mqtt_message', function(data) {
-        var tag = data.tag;
+        var tag = data.IECPath;
         var sourcetime = data.sourcetime;
         var status = data.status;
 

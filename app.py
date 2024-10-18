@@ -13,6 +13,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 
 socketio = SocketIO(app)
+# socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 读取用户数据
 with open('users.json') as f:
@@ -39,25 +40,19 @@ mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
-    client.subscribe("#")  # 订阅所有主题
+    client.subscribe("Topic/#")  # 订阅所有主题
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
     try:
-        mqtt_data = json.loads(payload)
-        tag = mqtt_data.get('tag')
-        sourcetime = mqtt_data.get('sourcetime')
-        status = mqtt_data.get('status')
+        mqtt_data = json.loads(payload)["Content"]
+        iec_path = mqtt_data.get('IECPath')
+        sourcetime = mqtt_data.get('SourceTime')
+        status = mqtt_data.get('Quality')
 
-        # 更新映射数据
-        for item in mapping_data:
-            if item['tag'] == tag:
-                item['sourcetime'] = sourcetime
-                item['status'] = status
-                break
-
+        print({'IECPath': iec_path, 'sourcetime': sourcetime, 'status': status})
         # 通过 WebSocket 发送数据给前端
-        socketio.emit('mqtt_message', {'tag': tag, 'sourcetime': sourcetime, 'status': status})
+        socketio.emit('mqtt_message', {'IECPath': iec_path, 'sourcetime': sourcetime, 'status': status})
     except Exception as e:
         print("Error processing MQTT message:", e)
 
@@ -112,6 +107,10 @@ def tree_data():
             tree[ied][type_] = []
         tree[ied][type_].append(item)
     return jsonify(tree)
+
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
