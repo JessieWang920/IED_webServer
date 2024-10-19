@@ -57,7 +57,7 @@ def on_message(client, userdata, msg):
         print(apple_temp)
         # websocket to JS 
         # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
-        time.sleep(1)  
+        time.sleep(5)  
     except Exception as e:
         print("Error processing MQTT message:", e)
 
