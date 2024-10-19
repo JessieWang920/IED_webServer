@@ -5,54 +5,59 @@ import json
 import pandas as pd
 import paho.mqtt.client as mqtt
 import threading
+import time
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
+
 app.secret_key = 'your_secret_key'
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 
 socketio = SocketIO(app)
-# socketio = SocketIO(app, cors_allowed_origins="*")
 
-# 读取用户数据
 with open('users.json') as f:
     users = json.load(f)['users']
 
-# 读取映射数据
 mapping_df = pd.read_csv('mapping.csv')
-
-# 将映射数据转换为字典列表
 mapping_data = mapping_df.to_dict('records')
 
-# 用户类
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
 
-# 用户加载回调
 @login_manager.user_loader
 def load_user(user_id):
     return User(user_id)
 
-# MQTT 客户端设置
-mqtt_client = mqtt.Client()
 
+mqtt_client = mqtt.Client()
 def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
-    client.subscribe("Topic/#")  # 订阅所有主题
-
+    client.subscribe("#")  # 订阅所有主题
+apple_temp = []
 def on_message(client, userdata, msg):
+    global apple_temp
+    # socketio.emit('test_event',{'note':"Q??"})
     payload = msg.payload.decode()
     try:
-        mqtt_data = json.loads(payload)["Content"]
-        iec_path = mqtt_data.get('IECPath')
+        mqtt_data = json.loads(payload).get('Content')
+        iecPath = mqtt_data.get('IECPath')
         sourcetime = mqtt_data.get('SourceTime')
         status = mqtt_data.get('Quality')
-
-        print({'IECPath': iec_path, 'sourcetime': sourcetime, 'status': status})
-        # 通过 WebSocket 发送数据给前端
-        socketio.emit('mqtt_message', {'IECPath': iec_path, 'sourcetime': sourcetime, 'status': status})
+        value = mqtt_data.get('Value')
+        # send mqtt data to JS
+        for item in mapping_data:
+            if item['IECPath'] == iecPath:
+                apple_temp = {'Tag':item['OpcuaNode'],'IECPath': iecPath,'Value':value, 'SourceTime': sourcetime, 'Quality': f'Good[{status}]'}
+                    
+                break
+        print(apple_temp)
+        # websocket to JS 
+        # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
+        time.sleep(1)  
     except Exception as e:
         print("Error processing MQTT message:", e)
 
@@ -63,12 +68,11 @@ def mqtt_loop():
     mqtt_client.connect('127.0.0.1', 1883, 60)
     mqtt_client.loop_forever()
 
-# 启动 MQTT 客户端线程
+
 mqtt_thread = threading.Thread(target=mqtt_loop)
 mqtt_thread.daemon = True
 mqtt_thread.start()
 
-# 路由和视图函数
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -93,13 +97,12 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-# 获取树形结构数据的接口
 @app.route('/tree_data')
 @login_required
 def tree_data():
     tree = {}
     for item in mapping_data:
-        ied = item['IED']
+        ied = item['IEDName']
         type_ = item['Type']
         if ied not in tree:
             tree[ied] = {}
@@ -108,9 +111,20 @@ def tree_data():
         tree[ied][type_].append(item)
     return jsonify(tree)
 
+
+
+import eventlet
+def send_periodic_messages():
+    while True:
+        # 模擬資料
+        socketio.emit('mqtt_message', apple_temp)
+        eventlet.sleep(0.01)  
+
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    socketio.start_background_task(target=send_periodic_messages)
+
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, debug=False)
