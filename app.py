@@ -8,6 +8,17 @@ import threading
 import time
 from flask_cors import CORS
 
+from threading import Lock
+from collections import defaultdict
+
+# 初始化锁和数据结构
+message_buffer = defaultdict(list)
+message_buffer_lock = Lock()
+client_subscriptions = {}
+client_subscriptions_lock = Lock()
+
+
+
 app = Flask(__name__)
 CORS(app)
 
@@ -49,9 +60,31 @@ def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
     client.subscribe("#")  
 
-apple_temp = []
+# apple_temp = []
+# def on_message(client, userdata, msg):
+#     global apple_temp
+#     payload = msg.payload.decode()
+#     try:
+#         mqtt_data = json.loads(payload).get('Content')
+#         iecPath = mqtt_data.get('IECPath')
+#         sourcetime = mqtt_data.get('SourceTime')
+#         status = mqtt_data.get('Quality')
+#         value = mqtt_data.get('Value')
+#         # send mqtt data to JS
+#         for item in mapping_data:
+#             if item['IECPath'] == iecPath:
+#                 apple_temp = {'Tag':item['OpcuaNode'],'IECPath': iecPath,'Value':value, 'SourceTime': sourcetime, 'Quality': f'Good[{status}]'}
+                    
+#                 break
+#         print(apple_temp)
+#         # websocket to JS 
+#         # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
+#         # time.sleep(2)  
+#     except Exception as e:
+#         print("Error processing MQTT message:", e)
+
 def on_message(client, userdata, msg):
-    global apple_temp
+    global message_buffer
     payload = msg.payload.decode()
     try:
         mqtt_data = json.loads(payload).get('Content')
@@ -59,18 +92,22 @@ def on_message(client, userdata, msg):
         sourcetime = mqtt_data.get('SourceTime')
         status = mqtt_data.get('Quality')
         value = mqtt_data.get('Value')
-        # send mqtt data to JS
+        # 处理MQTT数据
         for item in mapping_data:
             if item['IECPath'] == iecPath:
-                apple_temp = {'Tag':item['OpcuaNode'],'IECPath': iecPath,'Value':value, 'SourceTime': sourcetime, 'Quality': f'Good[{status}]'}
-                    
+                message = {
+                    'Tag': item['OpcuaNode'],
+                    'IECPath': iecPath,
+                    'Value': value,
+                    'SourceTime': sourcetime,
+                    'Quality': f'Good[{status}]',
+                    'topic': msg.topic
+                }
+                with message_buffer_lock:
+                    message_buffer[msg.topic].append(message)
                 break
-        print(apple_temp)
-        # websocket to JS 
-        # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
-        # time.sleep(2)  
     except Exception as e:
-        print("Error processing MQTT message:", e)
+        print("处理MQTT消息时出错：", e)
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -180,20 +217,66 @@ def tree_data():
     js_format = convert_to_js_format(tree)
     return jsonify({'treeData': tree, 'treeJsFormat': js_format})
 
+def send_periodic_messages():
+    while True:
+        with message_buffer_lock:
+            if message_buffer:
+                buffer_copy = message_buffer.copy()
+                message_buffer.clear()
+            else:
+                buffer_copy = {}
+        with client_subscriptions_lock:
+            subscriptions_copy = client_subscriptions.copy()
+        # 向订阅的客户端发送消息
+        for sid, topics in subscriptions_copy.items():
+            client_messages = []
+            for topic in topics:
+                if topic in buffer_copy:
+                    client_messages.extend(buffer_copy[topic])
+            if client_messages:
+                socketio.emit('mqtt_message', client_messages, room=sid)
+        eventlet.sleep(0.5)  # 根据需要调整时间间隔
 
 
 import eventlet
-def send_periodic_messages():
-    while True:
-        # 模擬資料
-        socketio.emit('mqtt_message', apple_temp)
-        eventlet.sleep(5)  
+# def send_periodic_messages():
+#     while True:
+#         # 模擬資料
+#         socketio.emit('mqtt_message', apple_temp)
+#         eventlet.sleep(1)  
+
+# @socketio.on('connect')
+# def handle_connect():
+#     print('Client connected')
+#     socketio.start_background_task(target=send_periodic_messages)
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    print('客户端已连接', request.sid)
+    
+    with client_subscriptions_lock:
+        client_subscriptions[request.sid] = set()
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('客户端已断开', request.sid)
+    with client_subscriptions_lock:
+        client_subscriptions.pop(request.sid, None)
+
+@socketio.on('subscribe')
+def handle_subscribe(data):
+    topic = data.get('topic')
+    print(topic)
+    sid = request.sid
+    with client_subscriptions_lock:
+        if sid not in client_subscriptions:
+            client_subscriptions[sid] = set()
+        client_subscriptions[sid].add(topic)
+    # 可选地，在此处管理MQTT订阅
+    mqtt_client.subscribe(topic,qos=1)
     socketio.start_background_task(target=send_periodic_messages)
 
 
 if __name__ == '__main__':
+    
     socketio.run(app, debug=True)

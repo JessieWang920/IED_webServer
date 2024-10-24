@@ -1,7 +1,7 @@
 $(document).ready(function() {
     var socket = io.connect('http://' + document.domain + ':' + location.port);
     var currentData = {};
-    var allData = {};
+
     socket.on('connect', function() {
         console.log('WebSocket connected successfully.');
         $('#status-indicator').removeClass('status-red').addClass('status-green');
@@ -16,39 +16,54 @@ $(document).ready(function() {
     //     console.log(data1)    
     // })
 
+
+    var updateScheduled = false;
+    function scheduleTableUpdate() {
+        if (!updateScheduled) {
+            updateScheduled = true;
+            setTimeout(function() {
+                updateTable();
+                updateScheduled = false;
+            }, 100);  // 根据需要调整延迟
+        }
+    }
+
+
     // mqtt processing
-    socket.on('mqtt_message', function(data) {
+    socket.on('mqtt_message', function(messages) {
 
-        var tag = data.Tag;
-        var sourcetime = data.SourceTime;
-        var status = data.Quality;
-        var value = data.Value;
-        console.log('Received MQTT message:', data);
-        // 更新当前数据
-        // console.log('1Current data:', currentData);
-        console.log('1currentData has tag:',currentData[tag]);
-        if (currentData[tag]) {
-            console.log('currentData has tag:', currentData[tag]);
+        // var tag = data.Tag;
+        // var sourcetime = data.SourceTime;
+        // var status = data.Quality;
+        // var value = data.Value;
+        // console.log('Received MQTT message:', data);
+        // // 更新当前数据
+        // // console.log('1Current data:', currentData);
+        // console.log('1currentData has tag:',currentData[tag]);
+        // if (currentData[tag]) {
+        //     console.log('currentData has tag:', currentData[tag]);
 
-            currentData[tag]['sourcetime'] = sourcetime;
-            currentData[tag]['status'] = status;
-            currentData[tag]['value'] = value;
-        }       
+        //     currentData[tag]['sourcetime'] = sourcetime;
+        //     currentData[tag]['status'] = status;
+        //     currentData[tag]['value'] = value;
+        // }       
+        console.log('Received MQTT message:', messages);
+        messages.forEach(function(data) {
+            // console.log('Received MQTT message:', data);
+            var tag = data.Tag;
+            currentData[tag] = {
+                sourcetime: data.SourceTime,
+                status: data.Quality,
+                value: data.Value,
+                IECPath: data.IECPath,
+                OpcuaNode: data.OpcuaNode
+            };
+        });
+        scheduleTableUpdate();
+
         
-        // // all data
-        // console.log("allData has data : ",Object.keys(allData).length);
-        // allData[tag]=data
-        
-        // if (Object.keys(allData).length === 0) {
-        //     console.log("allData is empty");        
-        // }else {
-        //     console.log("allData has data : ",Object.keys(allData).length);
-        //     allData[tag]=data
-        //     console.log('Updated current data:', );
-        // }
-        // console.log('CURRENT TAG',currentData[tag])
         // 更新表格
-        updateTable();
+        // updateTable();
     });
 
     // 获取树形结构数据
@@ -98,19 +113,26 @@ $(document).ready(function() {
                         // console.log('Selected IED:', ied);
                         // console.log('Selected type:', type);
                         console.log('Selected items:', items);
+                        var topic = 'Topic/' + type + '/' + ied;
+                        socket.emit('subscribe', { topic: topic });
                         // 加這個功能幹
                         console.log('Subscriber:Topic/'+type+'/'+ied);
                     } else {
                         ied = data.text;
                         console.log('Selected IED:', ied);
                         return;
-                    }                  
+                    }
+                    
+
                     currentData = {};
                     items.forEach(function(item) {                
                         currentData[item.OpcuaNode] = item;
                     });
-                    console.log('Current data:', currentData);
+                    // console.log('Current data:', currentData);
+
                     updateTable();
+
+
                 }
             });
         } else {
@@ -141,7 +163,7 @@ $(document).ready(function() {
     // 更新表格
     function updateTable() {
         // console.log('Updating table with  data:', data);
-        // console.log('Updating table with current data:', currentData);
+        console.log('Updating table with current data:', currentData);
         var tableHtml = '';
         for (var tag in currentData) {
             // console.log('Processing tag:', tag);
