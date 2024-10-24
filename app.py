@@ -15,32 +15,43 @@ app.secret_key = 'your_secret_key'
 
 login_manager = LoginManager()
 login_manager.init_app(app)
+# if user is not logged in, redirect to login page
+login_manager.login_view = 'login'
 
 socketio = SocketIO(app)
 
-with open('users.json') as f:
+with open(r"D:\project\IED\webServer_mqtt2web\config\users.json") as f:
     users = json.load(f)['users']
 
-mapping_df = pd.read_csv('mapping.csv')
+mapping_df = pd.read_csv(r"D:\project\IED\mqtt2opcua_part2\config\iec2opcua_mapping.csv")
 mapping_data = mapping_df.to_dict('records')
 
 class User(UserMixin):
-    def __init__(self, id):
+    def __init__(self, id,username, password):
         self.id = id
+        self.username = username
+        self.password = password
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User(user_id)
+    """
+    在每次請求時，將會呼叫此函式，即可得知哪位使用者。
+    """    
+    for user in users:
+        if user['id'] == user_id:
+            return User(user_id,user['username'],user['password'])
+    return None
 
 
 mqtt_client = mqtt.Client()
+
 def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
-    client.subscribe("#")  # 订阅所有主题
+    client.subscribe("#")  
+
 apple_temp = []
 def on_message(client, userdata, msg):
     global apple_temp
-    # socketio.emit('test_event',{'note':"Q??"})
     payload = msg.payload.decode()
     try:
         mqtt_data = json.loads(payload).get('Content')
@@ -57,7 +68,7 @@ def on_message(client, userdata, msg):
         print(apple_temp)
         # websocket to JS 
         # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
-        time.sleep(5)  
+        # time.sleep(2)  
     except Exception as e:
         print("Error processing MQTT message:", e)
 
@@ -73,17 +84,24 @@ mqtt_thread = threading.Thread(target=mqtt_loop)
 mqtt_thread.daemon = True
 mqtt_thread.start()
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
+def root():
+    return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        for user in users:
-            if user['username'] == username and user['password'] == password:
-                user_obj = User(username)
-                login_user(user_obj)
-                return redirect(url_for('index'))
-        return render_template('login.html', error='用户名或密码错误')
+        user = next((u for u in users if u['username'] == username and u['password'] == password), None)
+        if user:
+        # for user in users:
+        #     if user['username'] == username and user['password'] == password:
+            user_obj = User(user['id'], username, password)
+            login_user(user_obj)
+            return redirect(url_for('index'))
+        return render_template('login.html', error='帳密錯誤')
     return render_template('login.html')
 
 @app.route('/index')
@@ -97,6 +115,55 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
+
+def convert_to_js_format(tree):
+    js_format = []
+    parent_counter = 1
+    # parent_id_map = {}  # 紀錄父節點的 id
+
+    for ied, types in tree.items():
+        parent_node_id = f'parent-{parent_counter}'
+        parent_node = {
+            'text': f'{ied}',
+            'href': f'#{ied}',
+            'tags': [str(len(types))],
+            'nodes': [],
+            'nodeId': parent_node_id,  # 添加唯一的 parentId
+            'parentId': None  # 根节点的父节点为 None
+        }
+        child_counter = 1
+
+        for type, nodes in types.items():
+            child_node_id = f'child-{parent_counter}-{child_counter}'
+            child_node = {
+                'text': f'{type}',
+                'href': f'#{type}',
+                'tags': [str(len(nodes))],
+                # 'nodes': [],
+                'nodeId': child_node_id,  # 子节点的唯一 ID
+                'parentId': parent_node_id  # 子节点的 parentId 为父节点的 nodeId
+            }
+            # grandchild_counter = 1
+            # for opcua_node in nodes:
+            #     grandchild_node_id = f'grandchild-{parent_counter}-{child_counter}-{grandchild_counter}'
+            #     grandchild_node = {
+            #         'text': f'{opcua_node}',
+            #         'href': f'#{opcua_node}',
+            #         'tags': ['0'],
+            #         'nodeId': grandchild_node_id,  # 孙节点的唯一 ID
+            #         'parentId': child_node_id  # 孙节点的 parentId 为子节点的 nodeId
+            #     }
+            #     child_node['nodes'].append(grandchild_node)
+            #     grandchild_counter += 1
+            parent_node['nodes'].append(child_node)
+            child_counter += 1
+
+        js_format.append(parent_node)
+        parent_counter += 1
+
+    return js_format
+
+
 @app.route('/tree_data')
 @login_required
 def tree_data():
@@ -109,7 +176,9 @@ def tree_data():
         if type_ not in tree[ied]:
             tree[ied][type_] = []
         tree[ied][type_].append(item)
-    return jsonify(tree)
+
+    js_format = convert_to_js_format(tree)
+    return jsonify({'treeData': tree, 'treeJsFormat': js_format})
 
 
 
@@ -118,7 +187,7 @@ def send_periodic_messages():
     while True:
         # 模擬資料
         socketio.emit('mqtt_message', apple_temp)
-        eventlet.sleep(0.01)  
+        eventlet.sleep(5)  
 
 @socketio.on('connect')
 def handle_connect():
@@ -127,4 +196,4 @@ def handle_connect():
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=False)
+    socketio.run(app, debug=True)

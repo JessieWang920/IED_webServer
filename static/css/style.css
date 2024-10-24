@@ -17,15 +17,50 @@
 }
 
 /* 树形视图样式 */
-#tree-view ul {
+/* #treeview ul {
     list-style-type: none;
     padding-left: 20px;
 }
 
-#tree-view li {
+#treeview li {
     cursor: pointer;
 }
 
-#tree-view li:hover {
+#treeview li:hover {
     background-color: #f0f0f0;
+} */ */
+
+
+
+.treeview .list-group-item {
+    cursor: pointer;
 }
+.treeview span.indent {
+    margin-left: 10px;
+    margin-right: 10px
+
+    
+}
+
+.treeview span.icon {
+    width: 12px;
+    margin-right: 5px
+}
+
+.treeview .node-disabled {
+    color: silver;
+    cursor: not-allowed
+    
+}
+
+#treeview1 .node-treeview1 {
+    color: #078bff;
+    font-size: 12px;
+    padding: .1rem 1rem;
+    background-color: #fff;
+    border: 1px solid rgba(0, 0, 0, .125);
+}
+
+.node-treeview1:not(.node-disabled):hover {
+    background-color: #F5F5F5;
+    }

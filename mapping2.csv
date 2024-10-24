@@ -1,6 +1,0 @@
-OpcuaNode,IECPath,Type,IED
-var1,P31025$P31025Relay$Obj1CSWI1$Pos$stVal,DI,IED1
-var2,TG2MV_RTU$TG2MV_RTUTG2MV$AI16GGIO3$AnIn1$mag$i,DI,IED1
-var3,path_test_1,DO,IED2
-var4,path_test_2,AO,IED3
-var5,path_test_3,DO,IED1

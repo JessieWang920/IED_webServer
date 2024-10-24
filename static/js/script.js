@@ -23,16 +23,17 @@ $(document).ready(function() {
         var sourcetime = data.SourceTime;
         var status = data.Quality;
         var value = data.Value;
-
-        // console.log('Received MQTT message:', data);
-
+        console.log('Received MQTT message:', data);
         // 更新当前数据
+        // console.log('1Current data:', currentData);
+        console.log('1currentData has tag:',currentData[tag]);
         if (currentData[tag]) {
+            console.log('currentData has tag:', currentData[tag]);
+
             currentData[tag]['sourcetime'] = sourcetime;
             currentData[tag]['status'] = status;
             currentData[tag]['value'] = value;
-        }
-        
+        }       
         
         // // all data
         // console.log("allData has data : ",Object.keys(allData).length);
@@ -51,50 +52,90 @@ $(document).ready(function() {
     });
 
     // 获取树形结构数据
-    $.getJSON('/tree_data', function(treeData) {
-        buildTreeView(treeData);
+    $.getJSON('/tree_data', function(response) {
+        
+        var treeData = response.treeData;
+        var jsFormatData = response.treeJsFormat;
+
+        buildTreeView(treeData, jsFormatData);
+    }).fail(function(jqXHR, textStatus, errorThrown) {
+        console.error("Error fetching tree data: " + textStatus, errorThrown);
     });
 
-    // 构建树形视图
-    function buildTreeView(treeData) {
-        var treeHtml = '<ul class="list-group">';
-        for (var ied in treeData) {
-            treeHtml += '<li class="list-group-item">' + ied;
-            treeHtml += '<ul class="list-group">';
-            for (var type in treeData[ied]) {
-                treeHtml += '<li class="list-group-item type-item" data-ied="' + ied + '" data-type="' + type + '">' + type + '</li>';
+    
+    var nodeIdCounter = 1;
+    function buildNodeIdMap(nodes, map) {
+        nodes.forEach(function(node) {
+            node.nodeId = nodeIdCounter;  // 为每个节点分配唯一的 nodeId
+            map[node.nodeId] = node;  // 将 nodeId 作为数字存储
+            nodeIdCounter++;
+            if (node.nodes) {
+                
+                buildNodeIdMap(node.nodes, map);  // 递归处理子节点
             }
-            treeHtml += '</ul></li>';
-        }
-        treeHtml += '</ul>';
-        $('#tree-view').html(treeHtml);
-
-        // 绑定点击事件
-        $('.type-item').click(function() {
-            // console.log('data', $(this).data());
-            var ied = $(this).data('ied');
-            var type = $(this).data('type');
-            var items = treeData[ied][type];
-            
-            // console.log('Selected IED:', ied);
-            // console.log('Selected type:', type);
-            // console.log('Selected items:', items);
-            // console.log('Current data:', currentData);
-
-            // get all tags of selected items
-            // let tags = Object.values(items).map(item => item.tag);
-            // console.log(tags);
-            // 更新当前数据
-            currentData = {};
-            items.forEach(function(item) {                
-                currentData[item.tag] = item;
-                // console.log('item:', currentData[item.tag]);
-            });
-            // console.log('111Current data:', currentData);
-
-            // 更新表格
-            updateTable();
         });
+    }
+
+    
+    // 构建树形视图
+    function buildTreeView(treeData,treeData2Js) {
+        var nodeIdMap = {};
+        buildNodeIdMap(treeData2Js, nodeIdMap);
+        // console.log('nodeIdMap:', nodeIdMap);
+        if (treeData2Js) {
+            $('#treeview1').treeview({
+                data: treeData2Js,
+                collapseIcon:'fas fa-solid fa-caret-down',
+                expandIcon:'fas fa-solid fa-caret-right',
+                onNodeSelected: function(event, data) {
+                    var parentNodeId = data.parentId;
+                    var ied ;
+                    // get parent node information
+                    if (parentNodeId != null) {
+                        ied = nodeIdMap[parentNodeId+1].text;
+                        var type = data.text;  
+                        var items = treeData[ied][type];
+                        // console.log('Selected IED:', ied);
+                        // console.log('Selected type:', type);
+                        console.log('Selected items:', items);
+                        // 加這個功能幹
+                        console.log('Subscriber:Topic/'+type+'/'+ied);
+                    } else {
+                        ied = data.text;
+                        console.log('Selected IED:', ied);
+                        return;
+                    }                  
+                    currentData = {};
+                    items.forEach(function(item) {                
+                        currentData[item.OpcuaNode] = item;
+                    });
+                    console.log('Current data:', currentData);
+                    updateTable();
+                }
+            });
+        } else {
+            console.error("Failed to load tree data");
+        }
+
+        // $('.type-item').click(function() {
+        //     console.log('data', $(this).data());
+        //     alert('Selected type:'+ $(this).data('type'));
+        //     var ied = $(this).data('ied');
+        //     var type = $(this).data('type');
+        //     // get all tags of selected items
+        //     // let tags = Object.values(items).map(item => item.tag);
+        //     // console.log(tags);
+        //     // 更新当前数据
+        //     currentData = {};
+        //     items.forEach(function(item) {                
+        //         currentData[item.tag] = item;
+        //         // console.log('item:', currentData[item.tag]);
+        //     });
+        //     // console.log('111Current data:', currentData);
+
+        //     // 更新表格
+        //     updateTable();
+        // });
     }
 
     // 更新表格
@@ -108,14 +149,14 @@ $(document).ready(function() {
             var item = currentData[tag];
             // console.log('item:', item);
             tableHtml += '<tr>';
-            tableHtml += '<td>' + item.IecPath + '</td>';
+            tableHtml += '<td>' + item.IECPath + '</td>';
             tableHtml += '<td>' + (item.value || '') + '</td>';
             tableHtml += '<td>' + (item.sourcetime || '') + '</td>';
             tableHtml += '<td>' + (item.status || '') + '</td>';
-            tableHtml += '<td>' + item.tag + '</td>';
+            tableHtml += '<td>' + item.OpcuaNode + '</td>';
             tableHtml += '</tr>';
         }
-        // console.log('Table HTML:', tableHtml);
+        console.log('Table HTML:', tableHtml);
         $('#data-table').html(tableHtml);
         // console.log('Table updated successfully');
     }

@@ -2,11 +2,26 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>IED Monitor</title>
-    <!-- import Bootstrap CSS -->
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-    <!-- impot my CSS -->
+    
+    <!-- import Bootstrap 4.0.0-->
+    <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"> -->
+    <!-- DevExpress CSS 20.2.3 -->
+    <!-- <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/20.2.3/css/dx.light.css"> -->
+    <!-- boostrap 3.3.7  -->
+    <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"> -->
+    
+    
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.6.3/css/all.css" integrity="sha384-UHRtZLI+pbxtHCWp1t77Bi1L4ZtiqrqD80Kn4Z8NTSRyMA2Fd33n5dQ8lWUE00s/" crossorigin="anonymous">
+    <!-- bootstrap 4.1.3 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/css/bootstrap.min.css">
+    <!-- bootstrap treeview 1.2.0 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-treeview/1.2.0/bootstrap-treeview.min.css">
+    <!-- my CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+
 </head>
 
 <body>
@@ -32,8 +47,9 @@
     <div class="row">
         <!-- tree view -->
         <div class="col-md-2">
-            <h5>IED list</h5>
-            <div id="tree-view"></div>
+            <!-- <h5>IED list</h5> -->
+            <div id="treeview1" class="treeview"></div>
+
         </div>
         <!-- 数据表格 -->
         <div class="col-md-9">
@@ -57,11 +73,40 @@
 </div>
 
 <!-- import jQuery and Bootstrap JS -->
-<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+
+<!-- jQuery 3.3.1 -->
+<!-- <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+<!-- bootstrap treeview 1.2.0 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-treeview/1.2.0/bootstrap-treeview.min.js"></script>
+    
+
+<!-- bootstrap 4.0.0 -->
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
-<!-- import Socket.IO -->
+<!-- import Socket.IO 4.0.0 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
-<!-- import my JS -->
+<!-- import myJScode -->
 <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+
+<!-- test DevExpress 20.2.3 -->
+<!-- <script src="https://cdn3.devexpress.com/jslib/20.2.3/js/jquery.min.js"></script>
+<script src="https://cdn3.devexpress.com/jslib/20.2.3/js/dx.all.js"></script> -->
+
+<!-- test Jquery 3.6.0 -->
+<!-- <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> -->
+<!-- test Jquery 2.2.4 -->
+<!-- <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script> -->
+
+<!-- test Bootstrap 4.5.2 -->
+<!-- <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script> -->
+<!-- test Bootstrap 3.3.7 -->
+<!-- <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script> -->
+
+<!-- test Bootstrap Treeview 1.2.0 -->
+<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-treeview/1.2.0/bootstrap-treeview.min.js"></script> -->
+
+
 </body>
 </html>
