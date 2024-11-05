@@ -1,4 +1,6 @@
-/* WebSocket 连接状态指示器样式 */
+
+
+/* WebSocket  */
 #status-indicator {
     display: inline-block;
     width: 5px;
@@ -16,30 +18,20 @@
     background-color: green;
 }
 
-/* 树形视图样式 */
-/* #treeview ul {
-    list-style-type: none;
-    padding-left: 20px;
+
+
+
+#treeview1 {
+    margin-top: 20px; /* 可以根據需要調整下移的距離 */
 }
 
-#treeview li {
-    cursor: pointer;
-}
-
-#treeview li:hover {
-    background-color: #f0f0f0;
-} */ */
-
-
-
+/* treeview part  */
 .treeview .list-group-item {
     cursor: pointer;
 }
 .treeview span.indent {
     margin-left: 10px;
     margin-right: 10px
-
-    
 }
 
 .treeview span.icon {

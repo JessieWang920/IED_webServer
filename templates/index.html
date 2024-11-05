@@ -32,6 +32,9 @@
     <div class="collapse navbar-collapse">
         <ul class="navbar-nav ml-auto">
             <li class="nav-item">
+                <button id="monitor-btn" class="btn btn-outline-primary">Monitor</button>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link" href="{{ url_for('logout') }}">Log out</a>
             </li>
             <li class="nav-item">
@@ -51,21 +54,21 @@
             <div id="treeview1" class="treeview"></div>
 
         </div>
-        <!-- 数据表格 -->
+        <!-- data talbe -->
         <div class="col-md-9">
             <h5>   </h5>
             <table class="table thead-light table-sm">
                 <thead>
                     <tr>
-                        <th>IECPath</th>
+                        <th>Tag</th>
                         <th>Value</th>
                         <th>SourceTime</th>
                         <th>Status</th>
-                        <th>NodeID</th>
+                        <th>IECPath</th>
                     </tr>
                 </thead>
                 <tbody id="data-table">
-                    <!-- 動態填充? -->
+                    <!-- new data will be added here -->
                 </tbody>
             </table>
         </div>

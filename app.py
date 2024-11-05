@@ -1,35 +1,33 @@
 from flask import Flask, render_template, redirect, url_for, request, jsonify
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, disconnect
 import json
 import pandas as pd
 import paho.mqtt.client as mqtt
 import threading
 import time
 from flask_cors import CORS
-
 from threading import Lock
 from collections import defaultdict
+import eventlet
 
-# 初始化锁和数据结构
+# init lock and data structure
 message_buffer = defaultdict(list)
 message_buffer_lock = Lock()
 client_subscriptions = {}
 client_subscriptions_lock = Lock()
-
-
-
+last_topics = {}
 app = Flask(__name__)
-CORS(app)
-
 app.secret_key = 'your_secret_key'
+CORS(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 # if user is not logged in, redirect to login page
 login_manager.login_view = 'login'
 
-socketio = SocketIO(app)
+# socketio = SocketIO(app)
+socketio = SocketIO(app, async_mode='eventlet', ping_interval=25, ping_timeout=120)
 
 with open(r"D:\project\IED\webServer_mqtt2web\config\users.json") as f:
     users = json.load(f)['users']
@@ -58,7 +56,7 @@ mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
-    client.subscribe("#")  
+    # client.subscribe("#")  
 
 # apple_temp = []
 # def on_message(client, userdata, msg):
@@ -115,7 +113,6 @@ mqtt_client.on_message = on_message
 def mqtt_loop():
     mqtt_client.connect('127.0.0.1', 1883, 60)
     mqtt_client.loop_forever()
-
 
 mqtt_thread = threading.Thread(target=mqtt_loop)
 mqtt_thread.daemon = True
@@ -250,33 +247,102 @@ import eventlet
 #     print('Client connected')
 #     socketio.start_background_task(target=send_periodic_messages)
 
+
+
+pending_data = []
+
+@socketio.on('add_to_pending')
+def add_to_pending(data):
+    pending_data.append(data)
+    print('get暫存資料:', data)
+
+def send_pending_data():
+    for data in pending_data:
+        # 這裡可以實現將資料發送至指定位置
+        print('發送暫存資料:', data)
+    pending_data.clear()
+
+
+@socketio.on('monitor')
+def start_monitor():
+    def monitor_timer():
+        eventlet.sleep(3000)  # 5 分鐘
+        socketio.emit('monitor_timeout', {'message': 'monitor 是否繼續?'})
+
+    # threading.Thread(target=monitor_timer).start()
+    socketio.start_background_task(monitor_timer)
+
+
 @socketio.on('connect')
 def handle_connect():
-    print('客户端已连接', request.sid)
+    print('Client connected:', request.sid)
     
     with client_subscriptions_lock:
         client_subscriptions[request.sid] = set()
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('客户端已断开', request.sid)
+    print('Client disconnected:', request.sid)
     with client_subscriptions_lock:
         client_subscriptions.pop(request.sid, None)
 
 @socketio.on('subscribe')
 def handle_subscribe(data):
     topic = data.get('topic')
-    print(topic)
+    # print(topic)
     sid = request.sid
     with client_subscriptions_lock:
         if sid not in client_subscriptions:
             client_subscriptions[sid] = set()
+        # 获取并复制当前订阅的主题
+        last_topics[sid] = client_subscriptions[sid].copy()
+        # 取消之前的订阅
+        if last_topics[sid]:
+            topics_to_unsubscribe = list(last_topics[sid])
+            mqtt_client.unsubscribe(topics_to_unsubscribe)
+            # print(f"取消訂閱主題: {topics_to_unsubscribe}")
+            # 清空之前的订阅
+            client_subscriptions[sid].clear()
+        # 添加新的订阅主题
         client_subscriptions[sid].add(topic)
+
+
     # 可选地，在此处管理MQTT订阅
-    mqtt_client.subscribe(topic,qos=1)
+    mqtt_client.subscribe(topic,qos=1)    
     socketio.start_background_task(target=send_periodic_messages)
 
 
+@socketio.on('connect', namespace='/index')
+def handle_connect(auth):
+    username = auth.get('username')
+    password = auth.get('password')
+    if username == 'a' and password == 'ss':
+        print(f"{username} 已成功連接")
+    else:
+        print("認證失敗")
+        disconnect()
+
+
+@socketio.on('tag_control')
+def tag_control(data):
+    print(data)
+    tag = data.get('tag')
+    control = data.get('control')
+
+    # 通過 SocketIO 通知 OPC UA Server 將數據寫入
+    socketio.emit('control_tag', {'tag': tag, 'control': control})
+
+
+
+@socketio.on('set_tag_value')
+def set_tag_value(data):
+    print(data)
+    tag = data.get('tag')
+    value = data.get('value')
+
+    # 通過 SocketIO 通知 OPC UA Server 將數據寫入
+    socketio.emit('tag_value_updata', {'tag': tag, 'value': value})
+
+
 if __name__ == '__main__':
-    
     socketio.run(app, debug=True)
