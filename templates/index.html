@@ -28,52 +28,65 @@
 
 <!-- navbar -->
 <nav class="navbar navbar-expand-lg navbar-light bg-light">
-    <a class="navbar-brand" href="#">IED !</a>
+    <a class="navbar-brand" href="#">IED</a>
     <div class="collapse navbar-collapse">
         <ul class="navbar-nav ml-auto">
+            <li class="nav-item">
+                <button id="search-toggle-btn" class="btn btn-light"><i class="fas fa-search"></i></button>
+            </li>
             <li class="nav-item">
                 <button id="monitor-btn" class="btn btn-outline-primary">Monitor</button>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="{{ url_for('logout') }}">Log out</a>
+                <a id="logout-btn" class="btn nav-link " href="{{ url_for('logout') }}">Log out</a>
             </li>
             <li class="nav-item">
                 <span id="status-indicator" class="status-red"></span>
             </li>
-            
         </ul>
     </div>
 </nav>
+
+
 
 <!-- main content -->
 <div class="container-fluid">
     <div class="row">
         <!-- tree view -->
         <div class="col-md-2">
-            <!-- <h5>IED list</h5> -->
             <div id="treeview1" class="treeview"></div>
-
         </div>
-        <!-- data talbe -->
-        <div class="col-md-9">
-            <h5>   </h5>
-            <table class="table thead-light table-sm">
-                <thead>
-                    <tr>
-                        <th>Tag</th>
-                        <th>Value</th>
-                        <th>SourceTime</th>
-                        <th>Status</th>
-                        <th>IECPath</th>
-                    </tr>
-                </thead>
-                <tbody id="data-table">
-                    <!-- new data will be added here -->
-                </tbody>
-            </table>
+
+        
+
+
+        <!-- data table -->
+        <div class="col-md-10">
+            <div class="row">
+                <div id="search-container" class="container mt-2" style="display: none;">
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-transparent border-0 rounded-0"><i class="fas fa-search"></i></span>
+                        </div>
+                        <input type="text" id="search-input" class="form-control" placeholder="Search">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-secondary" id="clear-search"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="table thead-light table-sm" style="table-layout: fixed; width: 100%;">
+                        <thead>
+                            <tr id="header-row"></tr>
+                        </thead>
+                        <tbody id="data-table"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+
 
 <!-- import jQuery and Bootstrap JS -->
 

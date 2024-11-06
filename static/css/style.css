@@ -10,6 +10,96 @@
     margin-top: 17px
 }
 
+.highlight {
+    background-color: yellow; /* 自定义高亮背景色 */
+    font-weight: bold;
+}
+
+#search-input{
+    position: relative;
+    display: flex;
+    align-items: center; 
+    padding-right: 30px;
+    margin: 2px;
+    max-width: 300px; 
+}
+
+
+#search-container {
+    max-width: 300px;
+    margin: 0; /* 去除default 上外距離 */
+    padding-left: 0; /* 确保紧贴左边 */
+    margin-right: 20px; /* 与表格保持20px间距 */
+    margin-bottom: 20px;;
+    display: inline-block; /* 确保它不占满整行 */
+
+}
+
+.table-container {
+    display: inline-block;
+    /* width: calc(100% - 320px); 扣除 search-container 宽度和间距 */
+    vertical-align: top;
+}
+
+#clear-search{
+    width: 24px; 
+    height: 24px;
+    border-radius: 50%; 
+    line-height: 1; 
+    font-size: 12px;
+    text-align: center;
+    position: absolute;
+
+    margin-left: 0px;
+    z-index: 3;
+}
+
+
+#input-group-text{
+    padding: 9px;
+    color: #656f79cf;
+}
+
+.form-control {
+    height: calc(1.8rem);
+}
+
+
+.input-group-append {
+    margin-left: -29px;
+}
+
+button, input, optgroup, select, textarea {
+    margin-top: 3px;
+}
+.btn-outline-secondary {
+    color: #fff;
+    background-color: #0000002b;
+    background-image: none;
+    border-color: #fff;
+}
+
+@media (min-width: 768px) {
+    .col-md-2 {
+        -ms-flex: 0 0 16.666667%;
+        flex: 0 0 16.666667%;
+        max-width: 14%;
+    }
+    .col-md-10 {
+        margin: 20px auto;
+    }
+}
+
+
+
+.btn:not(:disabled):not(.disabled) {
+    cursor: pointer;
+    padding: revert-layer;
+    margin: 4px;
+}
+.btn-light {
+    color: #8593a1;
+}
 .status-red {
     background-color: red;
 }
@@ -18,7 +108,15 @@
     background-color: green;
 }
 
+table th, table td {
+    vertical-align: middle; /* 保持單元格內容垂直居中 */
+    text-align: center;     /* 使文本內容居中 */
+}
 
+/* 為全選 Checkbox 提供一些間距 */
+#select-all-checkbox {
+    margin: 0 auto;
+}
 
 
 #treeview1 {
