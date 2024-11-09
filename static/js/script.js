@@ -1,15 +1,31 @@
+let monitoredTags = new Set();
+var socket;
+
+
 $(document).ready(function() {
-    var socket = io.connect('http://' + document.domain + ':' + location.port);
+
+    let isDebugMode = true;
+    if (!isDebugMode) {
+        console.log = function() {};
+    }
+
+    socket = io.connect('http://' + document.domain + ':' + location.port);
     var currentData = {};
-    let monitoredTags = new Set();
+    
     var isCheckboxAdded = false;
     var isInteracting = false;
     var allData = [];
     let currentSearchValue = '';
+    let isMonitoring = false;
+    let countdown = 300; // 5分鐘（以秒為單位）
+    let countdownInterval;
+    let modalCountdownInterval;
+    var allTagsData = [];  // 用於存儲所有 IED 的標籤和路徑資料
 
     socket.on('connect', function() {
         console.log('WebSocket connected successfully.');
         $('#status-indicator').removeClass('status-red').addClass('status-green');
+        updateMonitoredTagsOnServer();
     });
 
     socket.on('disconnect', function() {
@@ -18,16 +34,89 @@ $(document).ready(function() {
     });
 
     $('#monitor-btn').click(function() {
-        if (!isCheckboxAdded) {
+        const $btn = $(this);
+        if (!isMonitoring && !isCheckboxAdded){
+            isMonitoring = true;
             isCheckboxAdded = true;
-            $(this).removeClass('btn-outline-primary').addClass('btn-danger');
+            $btn.removeClass('btn-outline-primary').addClass('btn-danger');
             updateTable();
-            socket.emit('monitor');
+            // socket.emit('monitor'); // 如果需要，取消註釋此行
+
+            startMonitoring();
         } else {
             stopMonitor();
-            $(this).removeClass('btn-danger').addClass('btn-outline-primary');
+            $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
         }
     });
+
+    function startMonitoring() {
+        const $btn = $('#monitor-btn');
+        countdown = 300; // 重置為5分鐘
+        updateButtonText(countdown);
+
+        countdownInterval = setInterval(function() {
+            countdown--;
+            if (countdown > 0) {
+                updateButtonText(countdown);
+                if (countdown === 10) { // 當剩餘10秒時，顯示模態框
+                    showContinuePrompt();
+                }
+            } else {
+                clearInterval(countdownInterval);
+                // alert('Timeout - 自動停止monitor');
+                $('#continueModal').modal('hide');
+                stopMonitor();
+                $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+            }
+        }, 1000);
+    }
+
+    function updateButtonText(seconds) {
+        const $btn = $('#monitor-btn');
+        $btn.text(`Monitor (${formatTime(seconds)})`);
+    }
+    
+    function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs < 10 ? '0' + secs : secs}`;
+    }
+    
+    function showContinuePrompt() {
+        // 顯示模態框
+        $('#continueModal').modal('show');
+        let modalCountdown = 10;
+        $('#modalCountdown').text(modalCountdown);
+    
+        // 每秒更新模態框中的倒數計時
+        modalCountdownInterval = setInterval(function() {
+            modalCountdown--;
+            $('#modalCountdown').text(modalCountdown);
+            if (modalCountdown <= 0) {
+                clearInterval(modalCountdownInterval);
+                $('#continueModal').modal('hide');
+                stopMonitor();
+                // $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+            }
+        }, 1000);
+    }
+    
+    $('#continueBtn').click(function() {
+        // 用戶選擇繼續監控
+        clearInterval(modalCountdownInterval);
+        $('#continueModal').modal('hide');
+        resetCountdown();
+    });
+    $('#stopBtn').click(function() {
+        clearInterval(modalCountdownInterval);
+        $('#continueModal').modal('hide');
+        stopMonitor();
+    });
+    
+    function resetCountdown() {
+        clearInterval(countdownInterval);
+        startMonitoring();
+    }
 
     // Toggle search box visibility
     $('#search-toggle-btn').click(function() {
@@ -40,18 +129,61 @@ $(document).ready(function() {
         $('#search-input').val('').trigger('input');
     });
 
+    // 監聽單個復選框變更事件（使用事件委派）
     $(document).on('change', '.monitor-checkbox', function() {
         let tag = $(this).data('tag');
+        // console.log('Tag control:', tag, $(this).is(':checked'));
         if ($(this).is(':checked')) {
             monitoredTags.add(tag);
             socket.emit('tag_control', { tag: tag, control: true });
-        } else {
-            monitoredTags.delete(tag);
+        } else {            
+            monitoredTags.delete(tag);            
             socket.emit('tag_control', { tag: tag, control: false });
             if (currentData[tag]) {
                 currentData[tag].inputValue = '';
             }
         }
+        updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
+
+        // 檢查是否所有子復選框都被選中
+        var allTags = Object.values(currentData).map(item => item.OpcuaNode);
+        var allChecked = allTags.length > 0 && allTags.every(tag => monitoredTags.has(tag));
+
+        // 更新全選復選框的狀態
+        $('#select-all-checkbox').prop('checked', allChecked);
+    });
+
+    function updateMonitoredTagsOnServer() {
+        socket.emit('update_monitored_tags', { tags: Array.from(monitoredTags) });
+    }
+    // 監聽全選復選框變更事件（使用事件委派）
+    $(document).on('change', '#select-all-checkbox', function() {
+        var isChecked = $(this).is(':checked');
+
+        // 防止重複觸發子復選框的change事件
+        $('.monitor-checkbox').each(function() {
+            var tag = $(this).data('tag');
+            if (isChecked) {
+                if (!monitoredTags.has(tag)) {
+                    monitoredTags.add(tag);
+                    socket.emit('tag_control', { tag: tag, control: true });
+                }
+            } else {
+                if (monitoredTags.has(tag)) {
+                    monitoredTags.delete(tag);
+                    socket.emit('tag_control', { tag: tag, control: false });
+                    if (currentData[tag]) {
+                        currentData[tag].inputValue = '';
+                    }
+                }
+            }
+            updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
+
+            // 設置子復選框的狀態
+            $(this).prop('checked', isChecked);
+        });
+
+        // 重新調用updateTable()更新表格顯示
         updateTable();
     });
 
@@ -60,7 +192,6 @@ $(document).ready(function() {
         let value = $(this).siblings('.entry-input').val();
         let tag = $(this).data('tag');
         if (value) {
-            console.log('Send data to OPCUA:', tag, value);
             socket.emit('set_tag_value', { tag: tag, value: value });
         }
         if (currentData[tag]) {
@@ -73,10 +204,28 @@ $(document).ready(function() {
     $(document).on('input', '.entry-input', function() {
         let tag = $(this).data('tag');
         let value = $(this).val();
-        if (value.startsWith('.') && value.length === 1) {
-            value = '0.';
+        let originalValue = value; // 保存原始值以便比較
+
+
+        // 如果輸入以負號開頭，保留負號，否則移除
+        if (value.startsWith('-')) {
+            // 保留負號，並移除其餘部分的非數字和非小數點字符
+            value = '-' + value.slice(1).replace(/[^0-9.]/g, '');
+        } else {
+            // 移除所有非數字和非小數點字符
+            value = value.replace(/[^0-9.]/g, '');
         }
-        value = value.replace(/[^0-9.]/g, '');
+
+        // 處理單獨的負號
+        if (value === '-') {
+            // 允許單獨的負號，暫時不進行其他處理
+        } else {
+            // 處理以小數點開頭的情況
+            if (value.startsWith('.') && value.length === 1) {
+                value = '0.';
+            }
+        }
+
         let decimalCount = (value.match(/\./g) || []).length;
         if (decimalCount > 1) {
             value = value.slice(0, -1);
@@ -84,6 +233,13 @@ $(document).ready(function() {
         $(this).val(value);
         if (currentData[tag]) {
             currentData[tag].inputValue = value;
+        }   
+    });
+
+    $(document).on('keydown', '.entry-input', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault(); // 防止表單提交或其他默認行為
+            $(this).closest('.input-group').find('.ok-btn').click(); // 觸發相應的 OK 按鈕
         }
     });
 
@@ -101,34 +257,23 @@ $(document).ready(function() {
     });
 
     function stopMonitor() {
-        $('.monitor-checkbox').prop('checked', false).trigger('change');
-        monitoredTags.clear();
+        isMonitoring = false;
+        clearInterval(countdownInterval);
+        clearInterval(modalCountdownInterval);
+        // 取消所有已經監控的標籤
+        monitoredTags.forEach(tag => {
+            socket.emit('tag_control', { tag: tag, control: false });
+        });
+        monitoredTags.clear(); // 清空已監控的標籤集合
+        updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
+        // 更新表格中復選框狀態
+        $('.monitor-checkbox').prop('checked', false);
         isCheckboxAdded = false;
+        $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
         $('table tbody tr td:first-child').remove();
+
         updateTable();
     }
-
-    socket.on('monitor_timeout', function(data) {
-        console.log('Monitor timeout:', data.message);
-        let counter = 10;
-        let countdown = setInterval(function() {
-            if (counter === 0) {
-                clearInterval(countdown);
-                stopMonitor();
-            } else {
-                console.log('倒數:', counter);
-                counter--;
-            }
-        }, 1000);
-        if (confirm(data.message)) {
-            clearInterval(countdown);
-            isCheckboxAdded = false;
-            $('#monitor-btn').click();
-        } else {
-            clearInterval(countdown);
-            stopMonitor();
-        }
-    });
 
     var updateScheduled = false;
     function scheduleTableUpdate() {
@@ -140,6 +285,10 @@ $(document).ready(function() {
             }, 100);
         }
     }
+    // socket.on('lient_close', function() {
+    //     stopMonitor();
+    // });
+
 
     socket.on('mqtt_message', function(messages) {
         messages.forEach(function(data) {
@@ -149,8 +298,10 @@ $(document).ready(function() {
             }
             if (!monitoredTags.has(tag)) {
                 currentData[tag].value = data.Value;
+                currentData[tag].sourcetime = data.SourceTime.split('.')[0]; // Remove milliseconds
+
             }
-            currentData[tag].sourcetime = data.SourceTime.split('.')[0]; // Remove milliseconds
+            // currentData[tag].sourcetime = data.SourceTime.split('.')[0]; // Remove milliseconds
             currentData[tag].status = data.Quality;
             currentData[tag].IECPath = data.IECPath;
             currentData[tag].OpcuaNode = tag;
@@ -166,9 +317,30 @@ $(document).ready(function() {
         var treeData = response.treeData;
         var jsFormatData = response.treeJsFormat;
         buildTreeView(treeData, jsFormatData);
+        loadAllTagsData(treeData);
     }).fail(function(jqXHR, textStatus, errorThrown) {
         console.error("Error fetching tree data: " + textStatus, errorThrown);
     });
+
+    // 新增的函數，用於從整個 treeData 中加載所有標籤
+    function loadAllTagsData(treeData) {
+        for (let iedKey in treeData) {
+            let ied = treeData[iedKey];
+            for (let type in ied) {
+                let items = ied[type];
+                items.forEach(function (item) {
+                    allTagsData.push({
+                        OpcuaNode: item.OpcuaNode,
+                        IECPath: item.IECPath,
+                        value: item.value || '',
+                        status: item.status || '',
+                        sourcetime: item.sourcetime || ''
+                    });
+                });
+            }
+        }
+        console.log('All tags data loaded:', allTagsData);
+    }
 
     var nodeIdCounter = 1;
     function buildNodeIdMap(nodes, map) {
@@ -192,24 +364,42 @@ $(document).ready(function() {
                 expandIcon:'fas fa-solid fa-caret-right',
                 onNodeSelected: function(event, data) {
                     var parentNodeId = data.parentId;
-                    var ied;
+                    var ied,type,items, topic;               
+
                     if (parentNodeId != null) {
+                        // 子節點
+                        // 根據您的資料結構調整索引
                         ied = nodeIdMap[parentNodeId+1].text;
-                        var type = data.text;
-                        var items = treeData[ied][type];
+                        type = data.text;
+                        items = treeData[ied][type];
                         console.log('Selected items:', items);
-                        var topic = 'Topic/' + type + '/' + ied;
+                        console.log(treeData)
+                        topic = 'Topic/' + type + '/' + ied;
+                        console.log('Subscribing to topic:', topic);
                         socket.emit('subscribe', { topic: topic });
                     } else {
+                        // 父節點
                         ied = data.text;
-                        return;
+                        topic = 'Topic/+/'+ ied;
+                        items = [];
+
+                        for (const [type, items_temp] of Object.entries(treeData[ied])) {
+                            items_temp.forEach(item => {
+                                // 可選：確保每個項目都包含 Type 屬性
+                                items.push({
+                                    ...item,
+                                    Type: type // 若每個項目已包含 Type 屬性，可省略此行
+                                });
+                            });
+                        }
+                        console.log('Subscribing to topic:', topic);
+                        socket.emit('subscribe', { topic: topic });                        
                     }
 
                     currentData = {};
-                    monitoredTags.clear();
                     items.forEach(function(item) {                
                         currentData[item.OpcuaNode] = item;
-                        currentData[item.OpcuaNode].inputValue = '';
+                        currentData[item.OpcuaNode].inputValue = '';                        
                     });
 
                     updateTable();
@@ -226,18 +416,18 @@ $(document).ready(function() {
         return text.replace(regex, '<span class="highlight">$1</span>');
     }
 
-
     function updateTable(data = Object.values(currentData)) {
-        // 如果有搜索条件，先过滤数据
+        // 如果有搜索條件，先過濾數據
         if (currentSearchValue) {
-            data = data.filter(function(item) {
+            const searchTerm = currentSearchValue.toLowerCase();
+            data = allTagsData.filter(function(item) {
                 return Object.values(item).some(function(val) {
                     return String(val).toLowerCase().includes(currentSearchValue);
                 });
             });
         }
     
-        // 计算是否所有的复选框都被选中
+        // 計算是否所有的復選框都被選中
         var allTags = data.map(item => item.OpcuaNode);
         var allChecked = allTags.length > 0 && allTags.every(tag => monitoredTags.has(tag));
     
@@ -258,9 +448,9 @@ $(document).ready(function() {
         if (isCheckboxAdded) {
             tableHtml += '<th style="width: 150px;">Input</th>';
         }
-        tableHtml += '</tr></thead><tbody>'; // 正确地关闭<tr>和</thead>
+        tableHtml += '</tr></thead><tbody>'; // 正確地關閉<tr>和</thead>
     
-        // 构建表格主体
+        // 構建表格主體
         for (var i = 0; i < data.length; i++) {
             var item = data[i];
             tableHtml += '<tr>';
@@ -277,12 +467,12 @@ $(document).ready(function() {
                 if (monitoredTags.has(item.OpcuaNode)) {
                     tableHtml += '<td>';
                     tableHtml += '<div class="input-group">';
-                    tableHtml += '<input type="text" class="form-control entry-input" placeholder="輸入值" data-tag="' + item.OpcuaNode + '" value="' + (item.inputValue || '') + '">';
+                    tableHtml += '<input type="text" class="form-control entry-input" placeholder="輸入數值" data-tag="' + item.OpcuaNode + '" value="' + (item.inputValue || '') + '">';
                     tableHtml += '<button class="btn btn-success ok-btn" data-tag="' + item.OpcuaNode + '">OK</button>';
                     tableHtml += '</div>';
                     tableHtml += '</td>';
                 } else {
-                    tableHtml += '<td></td>'; // 如果未选中，添加一个空的<td>
+                    tableHtml += '<td></td>'; // 如果未選中，添加一個空的<td>
                 }
             }
     
@@ -291,56 +481,9 @@ $(document).ready(function() {
         tableHtml += '</tbody>';
     
         $('#data-table').html(tableHtml);
-    
-        // 绑定全选复选框的事件处理程序
-        $('#select-all-checkbox').on('change', function() {
-            var isChecked = $(this).is(':checked');
-    
-            if (isChecked) {
-                // 将当前显示的数据中的所有标签添加到monitoredTags
-                data.forEach(function(item) {
-                    monitoredTags.add(item.OpcuaNode);
-                    socket.emit('tag_control', { tag: item.OpcuaNode, control: true });
-                });
-            } else {
-                // 从monitoredTags中移除当前显示的数据中的所有标签
-                data.forEach(function(item) {
-                    monitoredTags.delete(item.OpcuaNode);
-                    socket.emit('tag_control', { tag: item.OpcuaNode, control: false });
-                    if (currentData[item.OpcuaNode]) {
-                        currentData[item.OpcuaNode].inputValue = '';
-                    }
-                });
-            }
-    
-            // 更新DOM中的子复选框状态
-            $('.monitor-checkbox').prop('checked', isChecked);
-    
-            // 重新调用updateTable()更新表格显示
-            updateTable();
-        });
-    
-        // 子复选框的事件处理程序
-        $(document).on('change', '.monitor-checkbox', function() {
-            let tag = $(this).data('tag');
-            if ($(this).is(':checked')) {
-                monitoredTags.add(tag);
-                socket.emit('tag_control', { tag: tag, control: true });
-            } else {
-                monitoredTags.delete(tag);
-                socket.emit('tag_control', { tag: tag, control: false });
-                if (currentData[tag]) {
-                    currentData[tag].inputValue = '';
-                }
-            }
-    
-            // 检查是否所有子复选框都被选中
-            var allTags = data.map(item => item.OpcuaNode);
-            var allChecked = allTags.length > 0 && allTags.every(tag => monitoredTags.has(tag));
-    
-            // 更新全选复选框的状态
-            $('#select-all-checkbox').prop('checked', allChecked);
-        });
     }
-    
+
+
 });
+
+

@@ -17,6 +17,11 @@ message_buffer_lock = Lock()
 client_subscriptions = {}
 client_subscriptions_lock = Lock()
 last_topics = {}
+
+clients_monitored_tags = {}
+clients_monitored_tags_lock = Lock()
+
+
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 CORS(app)
@@ -230,6 +235,11 @@ def send_periodic_messages():
             for topic in topics:
                 if topic in buffer_copy:
                     client_messages.extend(buffer_copy[topic])
+                elif '+' in topic:
+                    # parent node
+                    if (buffer_copy):
+                        for child_node_topic  in buffer_copy:
+                            client_messages.extend(buffer_copy[child_node_topic])
             if client_messages:
                 socketio.emit('mqtt_message', client_messages, room=sid)
         eventlet.sleep(0.5)  # 根据需要调整时间间隔
@@ -263,28 +273,49 @@ def send_pending_data():
     pending_data.clear()
 
 
-@socketio.on('monitor')
-def start_monitor():
-    def monitor_timer():
-        eventlet.sleep(3000)  # 5 分鐘
-        socketio.emit('monitor_timeout', {'message': 'monitor 是否繼續?'})
+# @socketio.on('monitor')
+# def start_monitor():
+#     def monitor_timer():
+#         eventlet.sleep(10)  # 5 分鐘
+#         socketio.emit('monitor_timeout', {'message': 'monitor 是否繼續?'})
 
-    # threading.Thread(target=monitor_timer).start()
-    socketio.start_background_task(monitor_timer)
+#     # threading.Thread(target=monitor_timer).start()
+#     socketio.start_background_task(monitor_timer)
 
 
 @socketio.on('connect')
 def handle_connect():
     print('Client connected:', request.sid)
-    
     with client_subscriptions_lock:
         client_subscriptions[request.sid] = set()
+    with clients_monitored_tags_lock:
+        clients_monitored_tags[request.sid] = set()
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected:', request.sid)
     with client_subscriptions_lock:
         client_subscriptions.pop(request.sid, None)
+
+    with clients_monitored_tags_lock:
+        monitored_tags = clients_monitored_tags.pop(request.sid, None)
+        if monitored_tags:
+            for tag in monitored_tags:
+                print(f"Stopping monitoring tag: {tag} for client {request.sid}")
+                # 執行清理邏輯，例如發送停止監控指令
+                tag_control({'tag': tag, 'control': False})
+
+    print(f"Client {request.sid} disconnected")
+
+@socketio.on('update_monitored_tags')
+def update_monitored_tags(data):
+    # 更新客戶端的 monitoredTags 集合
+    client_sid = request.sid
+    tags = data.get('tags', [])
+    with clients_monitored_tags_lock:
+        clients_monitored_tags[client_sid] = set(tags)
+    print(f"Updated monitored tags for client {client_sid}: {tags}")
+
 
 @socketio.on('subscribe')
 def handle_subscribe(data):
@@ -345,4 +376,4 @@ def set_tag_value(data):
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', debug=False)
