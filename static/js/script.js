@@ -520,6 +520,10 @@ $(document).ready(function() {
         const regex = new RegExp(`(${searchTerm})`, 'gi');
         return text.replace(regex, '<span class="highlight">$1</span>');
     }
+    
+    function naturalSort(a, b) {
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    }
 
     function updateTable() {
         var data;
@@ -542,7 +546,12 @@ $(document).ready(function() {
         } else {
             data = Object.values(currentData);
         }
-    
+        data.sort(function(a, b) {
+            // if (a.OpcuaNode < b.OpcuaNode) return -1;
+            // if (a.OpcuaNode > b.OpcuaNode) return 1;
+            // return 0;
+            return naturalSort(a.OpcuaNode, b.OpcuaNode);
+        });
         // 計算是否所有的復選框都被選中
         var allTags = data.map(item => item.OpcuaNode);
         var allChecked = allTags.length > 0 && allTags.every(tag => monitoredTags.has(tag));
