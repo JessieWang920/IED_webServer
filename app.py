@@ -10,6 +10,8 @@ from flask_cors import CORS
 from threading import Lock
 from collections import defaultdict
 import eventlet
+import re
+
 
 # init lock and data structure
 message_buffer = defaultdict(list)
@@ -17,6 +19,7 @@ message_buffer_lock = Lock()
 client_subscriptions = {}
 client_subscriptions_lock = Lock()
 last_topics = {}
+last_message_cache = defaultdict(dict)
 
 clients_monitored_tags = {}
 clients_monitored_tags_lock = Lock()
@@ -56,8 +59,43 @@ def load_user(user_id):
             return User(user_id,user['username'],user['password'])
     return None
 
+full_subscription_client = mqtt.Client()
+
+def on_full_message(client, userdata, msg):
+    global last_message_cache
+    payload = msg.payload.decode()
+    try:
+        mqtt_data = json.loads(payload).get('Content')
+        iecPath = mqtt_data.get('IECPath')
+        sourcetime = mqtt_data.get('SourceTime')
+        status = mqtt_data.get('Quality')
+        value = mqtt_data.get('Value')
+
+        # 保存每个 `Topic` 最新的数据
+        for item in mapping_data:
+            if item['IECPath'] == iecPath:
+                tag = item['OpcuaNode']
+                message = {
+                    'Tag': tag,
+                    'IECPath': iecPath,
+                    'Value': value,
+                    'SourceTime': sourcetime,
+                    'Quality': f'Good[{status}]',
+                    'topic': msg.topic
+                }
+                # 更新缓存，确保每个 `Topic` 的最新值可用
+                last_message_cache[msg.topic][tag] = message
+
+                break
+    except Exception as e:
+        print("FULL 处理MQTT消息时出错：", e)
+
+# 配置独立客户端
+full_subscription_client.on_message = on_full_message
+
 
 mqtt_client = mqtt.Client()
+
 
 def on_connect(client, userdata, flags, rc):
     print("MQTT Connected with result code " + str(rc))
@@ -95,7 +133,6 @@ def on_message(client, userdata, msg):
         sourcetime = mqtt_data.get('SourceTime')
         status = mqtt_data.get('Quality')
         value = mqtt_data.get('Value')
-        # 处理MQTT数据
         for item in mapping_data:
             if item['IECPath'] == iecPath:
                 message = {
@@ -119,9 +156,20 @@ def mqtt_loop():
     mqtt_client.connect('127.0.0.1', 1883, 60)
     mqtt_client.loop_forever()
 
+def full_subscription_mqtt_loop():
+    full_subscription_client.connect('127.0.0.1', 1883, 60)
+    full_subscription_client.subscribe('Topic/#') 
+    full_subscription_client.loop_forever()
+
+# 启动用于单个客户端订阅的线程
 mqtt_thread = threading.Thread(target=mqtt_loop)
 mqtt_thread.daemon = True
 mqtt_thread.start()
+
+# 启动用于全局订阅所有Topic的线程
+full_subscription_thread = threading.Thread(target=full_subscription_mqtt_loop)
+full_subscription_thread.daemon = True
+full_subscription_thread.start()
 
 @app.route('/', methods=['GET'])
 def root():
@@ -329,20 +377,40 @@ def handle_subscribe(data):
     with client_subscriptions_lock:
         if sid not in client_subscriptions:
             client_subscriptions[sid] = set()
-        # 获取并复制当前订阅的主题
+        # 複製訂閱主題
         last_topics[sid] = client_subscriptions[sid].copy()
-        # 取消之前的订阅
+        # 取消之前訂閱
         if last_topics[sid]:
             topics_to_unsubscribe = list(last_topics[sid])
             mqtt_client.unsubscribe(topics_to_unsubscribe)
-            # print(f"取消訂閱主題: {topics_to_unsubscribe}")
-            # 清空之前的订阅
+            # print(f"取消訂閱: {topics_to_unsubscribe}")
+            # 清空之前的訂閱
             client_subscriptions[sid].clear()
-        # 添加新的订阅主题
+        # 加新的訂閱 
         client_subscriptions[sid].add(topic)
 
     # 可选地，在此处管理MQTT订阅
     mqtt_client.subscribe(topic,qos=1)    
+    # 發舊資料
+    combined_list = []
+    if topic in last_message_cache:
+        for i in last_message_cache[topic]:
+            combined_list.append(last_message_cache[topic][i]) 
+        socketio.emit('mqtt_message', combined_list, room=sid)
+    elif '+' in topic:
+        pattern = re.compile(topic.replace('+', '[^/]+'))
+        for topic, tags in last_message_cache.items():
+            if pattern.match(topic):
+                for _, tag_value in tags.items():
+                    # 如果匹配到，将其加入到结果中
+                    combined_list.append(tag_value)
+        socketio.emit('mqtt_message', combined_list, room=sid)
+    elif '#' in topic:
+        for topic, tags in last_message_cache.items():
+            for _, tag_value in tags.items():
+                combined_list.append(tag_value)
+        socketio.emit('mqtt_message', combined_list, room=sid)
+
     socketio.start_background_task(target=send_periodic_messages)
 
 
@@ -365,6 +433,17 @@ def tag_control(data):
 
     # 通過 SocketIO 通知 OPC UA Server 將數據寫入
     socketio.emit('control_tag', {'tag': tag, 'control': control})
+
+    if not control:
+        sid = request.sid
+        for topic, tags in last_message_cache.items():
+            if tag in tags:                
+                value = last_message_cache[topic][tag]['Value']
+                socketio.emit('mqtt_message', [last_message_cache[topic][tag]], room=sid)
+                # 給 OPCUA
+                socketio.emit('tag_value_updata', {'tag': tag, 'value': value})
+                break
+
 
 
 

@@ -204,6 +204,16 @@ $(document).ready(function() {
         event.stopPropagation();
         let value = $(this).siblings('.entry-input').val();
         let tag = $(this).data('tag');
+
+        if (value === '-')  {
+            alert('無法輸入單一負號，請輸入有效值');
+            return;
+        }
+        if (value === '')  {
+            alert('請輸入有效值');
+            return;
+        }
+
         isInteracting = false;
         if (value) {
             socket.emit('set_tag_value', { tag: tag, value: value });
@@ -257,14 +267,9 @@ $(document).ready(function() {
             value = value.replace(/[^0-9.]/g, '');
         }
 
-        // 處理單獨的負號
-        if (value === '-') {
-            // 允許單獨的負號，暫時不進行其他處理
-        } else {
-            // 處理以小數點開頭的情況
-            if (value.startsWith('.') && value.length === 1) {
-                value = '0.';
-            }
+        // 處理以小數點開頭的情況
+        if (value.startsWith('.') && value.length === 1) {
+            value = '0.';
         }
 
         let decimalCount = (value.match(/\./g) || []).length;
@@ -358,9 +363,11 @@ $(document).ready(function() {
 
 
     socket.on('mqtt_message', function(messages) {
+        console.log('Received MQTT message:', messages);
         messages.forEach(function(data) {
             var tag = data.Tag;
-
+            // console.log('Tag:', tag);
+            console.log('Data:', data);
             // 更新 allTagsData
             if (!allTagsData[tag]) {
                 allTagsData[tag] = {
@@ -520,7 +527,7 @@ $(document).ready(function() {
         const regex = new RegExp(`(${searchTerm})`, 'gi');
         return text.replace(regex, '<span class="highlight">$1</span>');
     }
-    
+
     function naturalSort(a, b) {
         return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
     }
