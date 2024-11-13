@@ -126,7 +126,14 @@ $(document).ready(function() {
     // Toggle search box visibility
     $('#search-toggle-btn').click(function() {
         $('#search-container').toggle();
-        $('#search-input').focus();
+        $('#data-table').empty();
+        if (!isSearching){
+            $('#search-input').focus();
+        }else{            
+            isSearching = false;
+            $('#search-input').val('').trigger('input');
+            updateTable();
+        }
     });
 
     // Clear search input
