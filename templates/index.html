@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>IED Monitor</title>
+    <title>IED Simulator</title>
     
     <!-- import Bootstrap 4.0.0-->
     <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"> -->
@@ -35,19 +35,19 @@
                 <button id="search-toggle-btn" class="btn btn-light"><i class="fas fa-search"></i></button>
             </li>
             <li class="nav-item">
-                <button id="monitor-btn" class="btn btn-outline-primary">Monitor</button>
+                <button id="monitor-btn" class="btn btn-outline-primary">Simulator</button>
                 <!-- 繼續監控模態框 -->
                 <div class="modal fade" id="continueModal" tabindex="-1" role="dialog" aria-labelledby="continueModalLabel" aria-hidden="true">
                     <div class="modal-dialog" role="document">
                     <div class="modal-content">
                         <div class="modal-header">
-                        <h5 class="modal-title" id="continueModalLabel">Monitor 即將停止</h5>
+                        <h5 class="modal-title" id="continueModalLabel">Simulator 即將停止</h5>
                         <button type="button" class="close" data-dismiss="modal" aria-label="關閉">
                             <span aria-hidden="true">&times;</span>
                         </button>
                         </div>
                         <div class="modal-body">
-                        Monitor 將在 <span id="modalCountdown">60</span> 秒後自動停止。是否要繼續模擬？
+                        Simulator 將在 <span id="modalCountdown">60</span> 秒後自動停止。是否要繼續模擬？
                         </div>
                         <div class="modal-footer">
                         <button type="button" id="continueBtn" class="btn btn-primary">繼續</button>

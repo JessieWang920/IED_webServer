@@ -50,7 +50,7 @@ $(document).ready(function() {
             startMonitoring();
         } else {
             stopMonitor();
-            $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+            $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
         }
     });
 
@@ -71,14 +71,14 @@ $(document).ready(function() {
                 // alert('Timeout - 自動停止monitor');
                 $('#continueModal').modal('hide');
                 stopMonitor();
-                $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+                $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
             }
         }, 1000);
     }
 
     function updateButtonText(seconds) {
         const $btn = $('#monitor-btn');
-        $btn.text(`Monitor (${formatTime(seconds)})`);
+        $btn.text(`Simulator (${formatTime(seconds)})`);
     }
     
     function formatTime(seconds) {
@@ -101,7 +101,7 @@ $(document).ready(function() {
                 clearInterval(modalCountdownInterval);
                 $('#continueModal').modal('hide');
                 stopMonitor();
-                // $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+                // $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
             }
         }, 1000);
     }
@@ -337,7 +337,7 @@ $(document).ready(function() {
         // 更新表格中復選框狀態
         $('.monitor-checkbox').prop('checked', false);
         isCheckboxAdded = false;
-        $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
+        $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
 
         updateTable();
     }
