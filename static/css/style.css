@@ -11,10 +11,34 @@
 }
 
 
+.navbar {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between; 
+    align-items: center;
+    
+}
 
+.navbar-collapse {
+    flex-grow: 1;
+    display: flex !important;
+    justify-content: flex-end;
+}
+
+.navbar-nav {
+    display: flex;
+    flex-wrap: row;
+    flex-direction: row; 
+    align-items: center;
+    align-items: baseline;
+}
+
+#search-toggle-btn, #monitor-btn, #logout-btn {
+    margin-bottom: 10px;
+}
 
 .highlight {
-    background-color: yellow; /* 自定义高亮背景色 */
+    background-color: yellow; 
     font-weight: bold;
 }
 

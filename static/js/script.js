@@ -20,7 +20,12 @@ $(document).ready(function() {
     let countdown = 300; // 5分鐘（以秒為單位）
     let countdownInterval;
     let modalCountdownInterval;
-    var allTagsData = [];  // 用於存儲所有 IED 的標籤和路徑資料
+    var allTagsData = {};  
+
+    let isSearching = false;
+    let previousSubscriptionTopic = null;
+    let currentSubscriptionTopic = null
+
 
     socket.on('connect', function() {
         console.log('WebSocket connected successfully.');
@@ -144,6 +149,7 @@ $(document).ready(function() {
             }
         }
         updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
+        updateTable(); // 更新表格顯示
 
         // 檢查是否所有子復選框都被選中
         var allTags = Object.values(currentData).map(item => item.OpcuaNode);
@@ -191,14 +197,42 @@ $(document).ready(function() {
         event.stopPropagation();
         let value = $(this).siblings('.entry-input').val();
         let tag = $(this).data('tag');
+        isInteracting = false;
         if (value) {
             socket.emit('set_tag_value', { tag: tag, value: value });
         }
         if (currentData[tag]) {
-            currentData[tag].value = value;
+            // console.log('current:',currentData[tag])
+            // console.log("value:",parseFloat(value))
+            currentData[tag].value = parseFloat(value);
+            const now = new Date();
+            const formattedTime = now.getFullYear() + "-" +
+                String(now.getMonth() + 1).padStart(2, '0') + "-" +
+                String(now.getDate()).padStart(2, '0') + " " +
+                String(now.getHours()).padStart(2, '0') + ":" +
+                String(now.getMinutes()).padStart(2, '0') + ":" +
+                String(now.getSeconds()).padStart(2, '0');
+            currentData[tag].sourcetime = formattedTime;
+            currentData[tag].status = 'Good';
             currentData[tag].inputValue = '';
+            // console.log('current:',currentData[tag])
+        }
+
+        if (allTagsData[tag]){
+            console.log(4)
+            
+            // console.log('alltagsdata:',allTagsData[tag])
+            // console.log("alltagsdata:", JSON.stringify(allTagsData[tag], null, 4));
+
+            // console.log("value:",parseFloat(value))
+            allTagsData[tag].value = parseFloat(value);
+            allTagsData[tag].inputValue = '';
+            // console.log('alltagsdata:',allTagsData[tag])
+            // console.log("alltagsdata:", JSON.stringify(allTagsData[tag], null, 4));
+
         }
         $(this).siblings('.entry-input').val('');
+        updateTable();
     });
 
     $(document).on('input', '.entry-input', function() {
@@ -251,9 +285,36 @@ $(document).ready(function() {
         isInteracting = false;
     });
 
+    let isMouseOverSearch = false;
+    // 在搜尋輸入框上的 focus 和 blur 事件
+    $('#search-input').on('focus', function() {
+        isSearching = true;
+        previousSubscriptionTopic = currentSubscriptionTopic;
+        currentSubscriptionTopic = 'Topic/#';
+        socket.emit('subscribe', { topic: currentSubscriptionTopic });
+    });
+
+    // $('#search-input').on('blur', function() {
+    //     isSearching = false;
+    //     if (previousSubscriptionTopic) {
+    //         currentSubscriptionTopic = previousSubscriptionTopic;
+    //         socket.emit('subscribe', { topic: currentSubscriptionTopic });
+    //     }
+    //     $('#search-input').val('');
+    //     currentSearchValue = '';
+    //     updateTable();
+    // });
+
+
+
     $('#search-input').on('input', function() {
         currentSearchValue = $(this).val().toLowerCase();
-        updateTable();
+        console.log('currentSearchValue:', currentSearchValue);
+        if (currentSearchValue) {
+            updateTable();
+        } else {
+            $('#data-table').empty();
+        }
     });
 
     function stopMonitor() {
@@ -270,7 +331,6 @@ $(document).ready(function() {
         $('.monitor-checkbox').prop('checked', false);
         isCheckboxAdded = false;
         $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Monitor');
-        $('table tbody tr td:first-child').remove();
 
         updateTable();
     }
@@ -293,22 +353,54 @@ $(document).ready(function() {
     socket.on('mqtt_message', function(messages) {
         messages.forEach(function(data) {
             var tag = data.Tag;
-            if (!currentData[tag]) {
-                currentData[tag] = {};
-            }
-            if (!monitoredTags.has(tag)) {
-                currentData[tag].value = data.Value;
-                currentData[tag].sourcetime = data.SourceTime.split('.')[0]; // Remove milliseconds
 
+            // 更新 allTagsData
+            if (!allTagsData[tag]) {
+                allTagsData[tag] = {
+                    OpcuaNode: tag,
+                    IECPath: data.IECPath,
+                    value: data.Value,
+                    status: data.Quality,
+                    sourcetime: data.SourceTime.split('.')[0],
+                    inputValue: ''
+                };
+            } 
+            else {
+                
+                if (!monitoredTags.has(tag)){
+                    allTagsData[tag].value = data.Value;
+                    allTagsData[tag].sourcetime = data.SourceTime.split('.')[0];
+                    allTagsData[tag].status = data.Quality;
+                }
             }
-            // currentData[tag].sourcetime = data.SourceTime.split('.')[0]; // Remove milliseconds
-            currentData[tag].status = data.Quality;
-            currentData[tag].IECPath = data.IECPath;
-            currentData[tag].OpcuaNode = tag;
-            currentData[tag].inputValue = currentData[tag].inputValue || '';
-            if (!allData.some(item => item.OpcuaNode === tag)) {
-                allData.push(currentData[tag]);
+
+            // 如果標籤存在於 currentData，則更新
+            if (currentData[tag] && !monitoredTags.has(tag)) {
+                currentData[tag].value = data.Value;
+                currentData[tag].sourcetime = data.SourceTime.split('.')[0];
+                currentData[tag].status = data.Quality;
             }
+            // if (!currentData[tag]) {
+            //     currentData[tag] = {
+            //     OpcuaNode: tag,
+            //     IECPath: data.IECPath,
+            //     inputValue: ''
+            //     };
+            // }
+
+            // // 更新 monitoredTags
+            // if (monitoredTags.has(tag)) {
+            //     if (!currentData[tag]) {
+            //         currentData[tag] = {
+            //             OpcuaNode: tag,
+            //             IECPath: data.IECPath,
+            //             inputValue: ''
+            //         };
+            //     }
+            //     currentData[tag].value = data.Value;
+            //     currentData[tag].sourcetime = data.SourceTime.split('.')[0];
+            //     currentData[tag].status = data.Quality;
+            // }
         });
         scheduleTableUpdate();
     });
@@ -363,6 +455,11 @@ $(document).ready(function() {
                 collapseIcon:'fas fa-solid fa-caret-down',
                 expandIcon:'fas fa-solid fa-caret-right',
                 onNodeSelected: function(event, data) {
+                    // 清空search
+                    isSearching = false;
+                    $('#search-input').val('');
+                    currentSearchValue = ''; 
+
                     var parentNodeId = data.parentId;
                     var ied,type,items, topic;               
 
@@ -372,8 +469,8 @@ $(document).ready(function() {
                         ied = nodeIdMap[parentNodeId+1].text;
                         type = data.text;
                         items = treeData[ied][type];
-                        console.log('Selected items:', items);
-                        console.log(treeData)
+                        // console.log('Selected items:', items);
+                        // console.log(treeData)
                         topic = 'Topic/' + type + '/' + ied;
                         console.log('Subscribing to topic:', topic);
                         socket.emit('subscribe', { topic: topic });
@@ -396,6 +493,7 @@ $(document).ready(function() {
                         socket.emit('subscribe', { topic: topic });                        
                     }
 
+                    currentSubscriptionTopic = topic; // 更新當前訂閱主題
                     currentData = {};
                     items.forEach(function(item) {                
                         currentData[item.OpcuaNode] = item;
@@ -416,15 +514,26 @@ $(document).ready(function() {
         return text.replace(regex, '<span class="highlight">$1</span>');
     }
 
-    function updateTable(data = Object.values(currentData)) {
+    function updateTable() {
+        var data;
+
         // 如果有搜索條件，先過濾數據
-        if (currentSearchValue) {
-            const searchTerm = currentSearchValue.toLowerCase();
-            data = allTagsData.filter(function(item) {
-                return Object.values(item).some(function(val) {
-                    return String(val).toLowerCase().includes(currentSearchValue);
+        if (isSearching) {
+            if (currentSearchValue) {
+                data = Object.values(allTagsData).filter(function(item) {
+                    // return Object.values(item).some(function(val) {
+                    //     return String(val).toLowerCase().includes(currentSearchValue);
+                    // });
+                    return ['IECPath', 'OpcuaNode'].some(function(key) {
+                        return String(item[key] || '').toLowerCase().includes(currentSearchValue.toLowerCase());
+                    });
                 });
-            });
+            } else {
+                // $('#data-table').empty();
+                return;
+            }
+        } else {
+            data = Object.values(currentData);
         }
     
         // 計算是否所有的復選框都被選中
@@ -458,9 +567,9 @@ $(document).ready(function() {
                 tableHtml += '<td><input type="checkbox" class="monitor-checkbox" data-tag="' + item.OpcuaNode + '"' + (monitoredTags.has(item.OpcuaNode) ? ' checked' : '') + '></td>';
             }
             tableHtml += '<td>' + highlightMatch(item.OpcuaNode, currentSearchValue) + '</td>';
-            tableHtml += '<td>' + highlightMatch(item.value || '', currentSearchValue) + '</td>';
-            tableHtml += '<td>' + highlightMatch((item.sourcetime || '').split('.')[0], currentSearchValue) + '</td>'; // 去除毫秒部分
-            tableHtml += '<td>' + highlightMatch(item.status || '', currentSearchValue) + '</td>';
+            tableHtml += '<td>' + item.value || '', currentSearchValue + '</td>';
+            tableHtml += '<td>' + (item.sourcetime || '').split('.')[0], currentSearchValue + '</td>'; // 去除毫秒部分
+            tableHtml += '<td>' + item.status || '', currentSearchValue + '</td>';
             tableHtml += '<td>' + highlightMatch(item.IECPath, currentSearchValue) + '</td>';
     
             if (isCheckboxAdded) {

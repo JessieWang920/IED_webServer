@@ -240,6 +240,10 @@ def send_periodic_messages():
                     if (buffer_copy):
                         for child_node_topic  in buffer_copy:
                             client_messages.extend(buffer_copy[child_node_topic])
+                elif '#' in topic:
+                    if (buffer_copy):
+                        for child_node_topic  in buffer_copy:
+                            client_messages.extend(buffer_copy[child_node_topic])
             if client_messages:
                 socketio.emit('mqtt_message', client_messages, room=sid)
         eventlet.sleep(0.5)  # 根据需要调整时间间隔
@@ -336,7 +340,6 @@ def handle_subscribe(data):
             client_subscriptions[sid].clear()
         # 添加新的订阅主题
         client_subscriptions[sid].add(topic)
-
 
     # 可选地，在此处管理MQTT订阅
     mqtt_client.subscribe(topic,qos=1)    
