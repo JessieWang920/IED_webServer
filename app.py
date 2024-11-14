@@ -59,11 +59,12 @@ def load_user(user_id):
             return User(user_id,user['username'],user['password'])
     return None
 
-full_subscription_client = mqtt.Client()
+full_subscription_client = mqtt.Client(client_id="full_subscription_client_unique_id")
 
 def on_full_message(client, userdata, msg):
     global last_message_cache
     payload = msg.payload.decode()
+    # print(payload)
     try:
         mqtt_data = json.loads(payload).get('Content')
         iecPath = mqtt_data.get('IECPath')
@@ -91,10 +92,10 @@ def on_full_message(client, userdata, msg):
         print("FULL 处理MQTT消息时出错：", e)
 
 # 配置独立客户端
+
 full_subscription_client.on_message = on_full_message
 
-
-mqtt_client = mqtt.Client()
+mqtt_client = mqtt.Client(client_id="mqtt_client_unique_id")
 
 
 def on_connect(client, userdata, flags, rc):
@@ -152,24 +153,18 @@ def on_message(client, userdata, msg):
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
-def mqtt_loop():
+def setup_mqtt_clients():
+    # 設置 mqtt_client
     mqtt_client.connect('127.0.0.1', 1883, 60)
-    mqtt_client.loop_forever()
+    mqtt_client.loop_start()
 
-def full_subscription_mqtt_loop():
+    # 設置 full_subscription_client
     full_subscription_client.connect('127.0.0.1', 1883, 60)
     full_subscription_client.subscribe('Topic/#') 
-    full_subscription_client.loop_forever()
+    full_subscription_client.loop_start()
 
-# 启动用于单个客户端订阅的线程
-mqtt_thread = threading.Thread(target=mqtt_loop)
-mqtt_thread.daemon = True
-mqtt_thread.start()
+setup_mqtt_clients()
 
-# 启动用于全局订阅所有Topic的线程
-full_subscription_thread = threading.Thread(target=full_subscription_mqtt_loop)
-full_subscription_thread.daemon = True
-full_subscription_thread.start()
 
 @app.route('/', methods=['GET'])
 def root():
@@ -277,7 +272,8 @@ def send_periodic_messages():
                 buffer_copy = {}
         with client_subscriptions_lock:
             subscriptions_copy = client_subscriptions.copy()
-        # 向订阅的客户端发送消息
+        # 如果有收到MQTT資料
+        
         for sid, topics in subscriptions_copy.items():
             client_messages = []
             for topic in topics:

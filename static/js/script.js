@@ -218,6 +218,7 @@ $(document).ready(function() {
         if (value) {
             socket.emit('set_tag_value', { tag: tag, value: value });
         }
+        console.log('current tag :',currentData[tag])
         if (currentData[tag]) {
             // console.log('current:',currentData[tag])
             // console.log("value:",parseFloat(value))
@@ -232,9 +233,9 @@ $(document).ready(function() {
             currentData[tag].sourcetime = formattedTime;
             currentData[tag].status = 'Good';
             currentData[tag].inputValue = '';
-            // console.log('current:',currentData[tag])
+            console.log('current:',currentData[tag])
         }
-
+        console.log('allTagsData:',allTagsData[tag])
         if (allTagsData[tag]){
             console.log(4)
             
@@ -370,6 +371,7 @@ $(document).ready(function() {
             console.log('Data:', data);
             // 更新 allTagsData
             if (!allTagsData[tag]) {
+                console.log(5)
                 allTagsData[tag] = {
                     OpcuaNode: tag,
                     IECPath: data.IECPath,
@@ -380,8 +382,9 @@ $(document).ready(function() {
                 };
             } 
             else {
-                
+                console.log(6)
                 if (!monitoredTags.has(tag)){
+                    console.log(9)
                     allTagsData[tag].value = data.Value;
                     allTagsData[tag].sourcetime = data.SourceTime.split('.')[0];
                     allTagsData[tag].status = data.Quality;
@@ -390,6 +393,7 @@ $(document).ready(function() {
 
             // 如果標籤存在於 currentData，則更新
             if (currentData[tag] && !monitoredTags.has(tag)) {
+                console.log(7)
                 currentData[tag].value = data.Value;
                 currentData[tag].sourcetime = data.SourceTime.split('.')[0];
                 currentData[tag].status = data.Quality;
@@ -434,6 +438,7 @@ $(document).ready(function() {
             let ied = treeData[iedKey];
             for (let type in ied) {
                 let items = ied[type];
+                console.log('all tags data:',allTagsData)
                 items.forEach(function (item) {
                     allTagsData.push({
                         OpcuaNode: item.OpcuaNode,
@@ -510,8 +515,17 @@ $(document).ready(function() {
                     currentSubscriptionTopic = topic; // 更新當前訂閱主題
                     currentData = {};
                     items.forEach(function(item) {                
-                        currentData[item.OpcuaNode] = item;
-                        currentData[item.OpcuaNode].inputValue = '';                        
+                        // currentData[item.OpcuaNode] = item;
+                        // currentData[item.OpcuaNode].inputValue = '';     
+                        var tag = item.OpcuaNode;
+                        if (allTagsData[tag]) {
+                            // Use the updated data from allTagsData
+                            currentData[tag] = Object.assign({}, allTagsData[tag]);
+                        } else {
+                            // Use the original item data
+                            currentData[tag] = item;
+                        }
+                        currentData[tag].inputValue = '';   
                     });
 
                     updateTable();
