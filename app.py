@@ -1,243 +1,268 @@
-from flask import Flask, render_template, redirect, url_for, request, jsonify
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from flask_socketio import SocketIO, emit, disconnect
+import logging
+import os
+import platform
 import json
-import pandas as pd
-import paho.mqtt.client as mqtt
+import re
 import threading
 import time
-from flask_cors import CORS
-from threading import Lock
 from collections import defaultdict
+from threading import Lock
+
 import eventlet
-import re
+import pandas as pd
+import paho.mqtt.client as mqtt
+from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask_cors import CORS
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    login_required,
+    login_user,
+    logout_user,
+)
+from flask_socketio import SocketIO, emit, disconnect
 
+# Determine system paths based on OS
+LINUX = platform.system() == "Linux"
+if LINUX:
+    PATH = os.path.expanduser("~/Project/IED_webServer")
+    OPCUA_PATH = os.path.expanduser("~/Project/IED_server")
+    MQTT_BROKER = "0.0.0.0"
+else:
+    PATH = r"D:\project\IED\webServer_mqtt2web"
+    OPCUA_PATH = r"D:\project\IED\mqtt2opcua_part2"
+    MQTT_BROKER = "127.0.0.1"
 
-# init lock and data structure
+CSV_FILE_PATH = os.path.join(OPCUA_PATH, "config", "iec2opcua_mapping.csv")
+ACCOUNT_FILE_PATH = os.path.join(PATH, "config", "users.json")
+LOG_FILE_PATH = os.path.join(PATH, "log", "webServer.log")
+
+# Set up logging
+logging.basicConfig(
+    level=logging.ERROR,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE_PATH, mode="a"), logging.StreamHandler()],
+)
+logger = logging.getLogger("web_server")
+logger.error("========================================================")
+
+# Initialize locks and data structures
 message_buffer = defaultdict(list)
 message_buffer_lock = Lock()
 client_subscriptions = {}
 client_subscriptions_lock = Lock()
 last_topics = {}
 last_message_cache = defaultdict(dict)
-
 clients_monitored_tags = {}
 clients_monitored_tags_lock = Lock()
 
-
+# Initialize Flask app
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = "your_secret_key"
 CORS(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
-# if user is not logged in, redirect to login page
-login_manager.login_view = 'login'
+login_manager.login_view = "login" # if user is not logged in, redirect to login page
 
-# socketio = SocketIO(app)
-socketio = SocketIO(app, async_mode='eventlet', ping_interval=25, ping_timeout=120)
+socketio = SocketIO(app, async_mode="eventlet", ping_interval=25, ping_timeout=120)
 
-with open(r"D:\project\IED\webServer_mqtt2web\config\users.json") as f:
-    users = json.load(f)['users']
+# Load users from JSON file
+try:
+    with open(ACCOUNT_FILE_PATH) as f:
+        users = json.load(f)["users"]
+except FileNotFoundError:
+    logger.error("Account file not found.")
+    users = []
+except Exception as e:
+    logger.error(f"Error loading account file: {e}")
+    users = []
 
-mapping_df = pd.read_csv(r"D:\project\IED\mqtt2opcua_part2\config\iec2opcua_mapping.csv")
-mapping_data = mapping_df.to_dict('records')
+# Load mapping data from CSV
+try:
+    mapping_df = pd.read_csv(CSV_FILE_PATH)
+    mapping_data = mapping_df.to_dict("records")
+except Exception as e:
+    logger.error(f"Error loading mapping file: {e}")
+    mapping_data = []
+
 
 class User(UserMixin):
-    def __init__(self, id,username, password):
+    """User class for Flask-Login."""
+
+    def __init__(self, id, username, password):
         self.id = id
         self.username = username
         self.password = password
 
+
 @login_manager.user_loader
 def load_user(user_id):
-    """
-    在每次請求時，將會呼叫此函式，即可得知哪位使用者。
-    """    
+    """Load user from user ID."""
     for user in users:
-        if user['id'] == user_id:
-            return User(user_id,user['username'],user['password'])
+        if user["id"] == user_id:
+            return User(user_id, user["username"], user["password"])
     return None
 
+
+# Initialize MQTT clients
 full_subscription_client = mqtt.Client(client_id="full_subscription_client_unique_id")
-
-def on_full_message(client, userdata, msg):
-    global last_message_cache
-    payload = msg.payload.decode()
-    # print(payload)
-    try:
-        mqtt_data = json.loads(payload).get('Content')
-        iecPath = mqtt_data.get('IECPath')
-        sourcetime = mqtt_data.get('SourceTime')
-        status = mqtt_data.get('Quality')
-        value = mqtt_data.get('Value')
-
-        # 保存每个 `Topic` 最新的数据
-        for item in mapping_data:
-            if item['IECPath'] == iecPath:
-                tag = item['OpcuaNode']
-                message = {
-                    'Tag': tag,
-                    'IECPath': iecPath,
-                    'Value': value,
-                    'SourceTime': sourcetime,
-                    'Quality': f'Good[{status}]',
-                    'topic': msg.topic
-                }
-                # 更新缓存，确保每个 `Topic` 的最新值可用
-                last_message_cache[msg.topic][tag] = message
-
-                break
-    except Exception as e:
-        print("FULL 处理MQTT消息时出错：", e)
-
-# 配置独立客户端
-
-full_subscription_client.on_message = on_full_message
-
 mqtt_client = mqtt.Client(client_id="mqtt_client_unique_id")
 
 
-def on_connect(client, userdata, flags, rc):
-    print("MQTT Connected with result code " + str(rc))
-    # client.subscribe("#")  
+def on_full_message(client, userdata, msg):
+    """Callback for handling full MQTT messages."""
+    global last_message_cache
+    payload = msg.payload.decode()
+    try:
+        mqtt_data = json.loads(payload).get("Content")
+        iecPath = mqtt_data.get("IECPath")
+        sourcetime = mqtt_data.get("SourceTime")
+        status = mqtt_data.get("Quality")
+        value = mqtt_data.get("Value")
 
-# apple_temp = []
-# def on_message(client, userdata, msg):
-#     global apple_temp
-#     payload = msg.payload.decode()
-#     try:
-#         mqtt_data = json.loads(payload).get('Content')
-#         iecPath = mqtt_data.get('IECPath')
-#         sourcetime = mqtt_data.get('SourceTime')
-#         status = mqtt_data.get('Quality')
-#         value = mqtt_data.get('Value')
-#         # send mqtt data to JS
-#         for item in mapping_data:
-#             if item['IECPath'] == iecPath:
-#                 apple_temp = {'Tag':item['OpcuaNode'],'IECPath': iecPath,'Value':value, 'SourceTime': sourcetime, 'Quality': f'Good[{status}]'}
-                    
-#                 break
-#         print(apple_temp)
-#         # websocket to JS 
-#         # socketio.emit('mqtt_message', {'iecpath': iecPath, 'sourcetime': sourcetime, 'status': status})
-#         # time.sleep(2)  
-#     except Exception as e:
-#         print("Error processing MQTT message:", e)
+        # Save the latest data for each Topic
+        for item in mapping_data:
+            if item["IECPath"] == iecPath:
+                tag = item["OpcuaNode"]
+                message = {
+                    "Tag": tag,
+                    "IECPath": iecPath,
+                    "Value": value,
+                    "SourceTime": sourcetime,
+                    "Quality": f"Good[{status}]",
+                    "topic": msg.topic,
+                }
+                # Update cache to ensure latest value for each Topic
+                last_message_cache[msg.topic][tag] = message
+                break
+    except Exception as e:
+        logger.error(f"Error processing full MQTT message: {e}")
+
+
+def on_connect(client, userdata, flags, rc):
+    """Callback for MQTT client connection."""
+    logger.info(f"MQTT Connected with result code {rc}")
+
 
 def on_message(client, userdata, msg):
+    """Callback for handling MQTT messages."""
     global message_buffer
     payload = msg.payload.decode()
     try:
-        mqtt_data = json.loads(payload).get('Content')
-        iecPath = mqtt_data.get('IECPath')
-        sourcetime = mqtt_data.get('SourceTime')
-        status = mqtt_data.get('Quality')
-        value = mqtt_data.get('Value')
+        mqtt_data = json.loads(payload).get("Content")
+        iecPath = mqtt_data.get("IECPath")
+        sourcetime = mqtt_data.get("SourceTime")
+        status = mqtt_data.get("Quality")
+        value = mqtt_data.get("Value")
         for item in mapping_data:
-            if item['IECPath'] == iecPath:
+            if item["IECPath"] == iecPath:
                 message = {
-                    'Tag': item['OpcuaNode'],
-                    'IECPath': iecPath,
-                    'Value': value,
-                    'SourceTime': sourcetime,
-                    'Quality': f'Good[{status}]',
-                    'topic': msg.topic
+                    "Tag": item["OpcuaNode"],
+                    "IECPath": iecPath,
+                    "Value": value,
+                    "SourceTime": sourcetime,
+                    "Quality": f"Good[{status}]",
+                    "topic": msg.topic,
                 }
                 with message_buffer_lock:
                     message_buffer[msg.topic].append(message)
                 break
     except Exception as e:
-        print("处理MQTT消息时出错：", e)
+        logger.error(f"Error processing MQTT message: {e}")
 
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
 
 def setup_mqtt_clients():
-    # 設置 mqtt_client
-    mqtt_client.connect('127.0.0.1', 1883, 60)
-    mqtt_client.loop_start()
+    """Setup MQTT clients."""
+    try:
+        # Setup mqtt_client
+        mqtt_client.on_connect = on_connect
+        mqtt_client.on_message = on_message
+        mqtt_client.connect(MQTT_BROKER, 1883, 60)
+        mqtt_client.loop_start()
 
-    # 設置 full_subscription_client
-    full_subscription_client.connect('127.0.0.1', 1883, 60)
-    full_subscription_client.subscribe('Topic/#') 
-    full_subscription_client.loop_start()
+        # Setup full_subscription_client
+        full_subscription_client.on_message = on_full_message
+        full_subscription_client.connect(MQTT_BROKER, 1883, 60)
+        full_subscription_client.subscribe("Topic/#")
+        full_subscription_client.loop_start()
+    except Exception as e:
+        logger.error(f"Error setting up MQTT clients: {e}")
+
 
 setup_mqtt_clients()
 
 
-@app.route('/', methods=['GET'])
+@app.route("/", methods=["GET"])
 def root():
-    return redirect(url_for('login'))
+    """Redirect to login page."""
+    return redirect(url_for("login"))
 
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = next((u for u in users if u['username'] == username and u['password'] == password), None)
+    """Handle user login."""
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        user = next(
+            (
+                u
+                for u in users
+                if u["username"] == username and u["password"] == password
+            ),
+            None,
+        )
         if user:
-        # for user in users:
-        #     if user['username'] == username and user['password'] == password:
-            user_obj = User(user['id'], username, password)
+            user_obj = User(user["id"], username, password)
             login_user(user_obj)
-            return redirect(url_for('index'))
-        return render_template('login.html', error='帳密錯誤')
-    return render_template('login.html')
+            return redirect(url_for("index"))
+        return render_template("login.html", error="帳密錯誤")
+    return render_template("login.html")
 
-@app.route('/index')
+
+@app.route("/index")
 @login_required
 def index():
-    return render_template('index.html', mapping_data=mapping_data)
+    """Render index page."""
+    return render_template("index.html", mapping_data=mapping_data)
 
-@app.route('/logout')
+
+@app.route("/logout")
 @login_required
 def logout():
+    """Handle user logout."""
     logout_user()
-    return redirect(url_for('login'))
+    return redirect(url_for("login"))
 
 
 def convert_to_js_format(tree):
+    """Convert tree data to JS format."""
     js_format = []
     parent_counter = 1
-    # parent_id_map = {}  # 紀錄父節點的 id
 
     for ied, types in tree.items():
-        parent_node_id = f'parent-{parent_counter}'
+        parent_node_id = f"parent-{parent_counter}"
         parent_node = {
-            'text': f'{ied}',
-            'href': f'#{ied}',
-            'tags': [str(len(types))],
-            'nodes': [],
-            'nodeId': parent_node_id,  # 添加唯一的 parentId
-            'parentId': None  # 根节点的父节点为 None
+            "text": f"{ied}",
+            "href": f"#{ied}",
+            "tags": [str(len(types))],
+            "nodes": [],
+            "nodeId": parent_node_id,
+            "parentId": None,
         }
         child_counter = 1
 
-        for type, nodes in types.items():
-            child_node_id = f'child-{parent_counter}-{child_counter}'
+        for type_, nodes in types.items():
+            child_node_id = f"child-{parent_counter}-{child_counter}"
             child_node = {
-                'text': f'{type}',
-                'href': f'#{type}',
-                'tags': [str(len(nodes))],
-                # 'nodes': [],
-                'nodeId': child_node_id,  # 子节点的唯一 ID
-                'parentId': parent_node_id  # 子节点的 parentId 为父节点的 nodeId
+                "text": f"{type_}",
+                "href": f"#{type_}",
+                "tags": [str(len(nodes))],
+                "nodeId": child_node_id,
+                "parentId": parent_node_id,
             }
-            # grandchild_counter = 1
-            # for opcua_node in nodes:
-            #     grandchild_node_id = f'grandchild-{parent_counter}-{child_counter}-{grandchild_counter}'
-            #     grandchild_node = {
-            #         'text': f'{opcua_node}',
-            #         'href': f'#{opcua_node}',
-            #         'tags': ['0'],
-            #         'nodeId': grandchild_node_id,  # 孙节点的唯一 ID
-            #         'parentId': child_node_id  # 孙节点的 parentId 为子节点的 nodeId
-            #     }
-            #     child_node['nodes'].append(grandchild_node)
-            #     grandchild_counter += 1
-            parent_node['nodes'].append(child_node)
+            parent_node["nodes"].append(child_node)
             child_counter += 1
 
         js_format.append(parent_node)
@@ -246,13 +271,14 @@ def convert_to_js_format(tree):
     return js_format
 
 
-@app.route('/tree_data')
+@app.route("/tree_data")
 @login_required
 def tree_data():
+    """Provide tree data for the frontend."""
     tree = {}
     for item in mapping_data:
-        ied = item['IEDName']
-        type_ = item['Type']
+        ied = item["IEDName"]
+        type_ = item["Type"]
         if ied not in tree:
             tree[ied] = {}
         if type_ not in tree[ied]:
@@ -260,88 +286,56 @@ def tree_data():
         tree[ied][type_].append(item)
 
     js_format = convert_to_js_format(tree)
-    return jsonify({'treeData': tree, 'treeJsFormat': js_format})
+    return jsonify({"treeData": tree, "treeJsFormat": js_format})
+
 
 def send_periodic_messages():
+    """Send periodic messages to clients."""
     while True:
-        with message_buffer_lock:
-            if message_buffer:
-                buffer_copy = message_buffer.copy()
-                message_buffer.clear()
-            else:
-                buffer_copy = {}
-        with client_subscriptions_lock:
-            subscriptions_copy = client_subscriptions.copy()
-        # 如果有收到MQTT資料
-        
-        for sid, topics in subscriptions_copy.items():
-            client_messages = []
-            for topic in topics:
-                if topic in buffer_copy:
-                    client_messages.extend(buffer_copy[topic])
-                elif '+' in topic:
-                    # parent node
-                    if (buffer_copy):
-                        for child_node_topic  in buffer_copy:
-                            client_messages.extend(buffer_copy[child_node_topic])
-                elif '#' in topic:
-                    if (buffer_copy):
-                        for child_node_topic  in buffer_copy:
-                            client_messages.extend(buffer_copy[child_node_topic])
-            if client_messages:
-                socketio.emit('mqtt_message', client_messages, room=sid)
-        eventlet.sleep(0.5)  # 根据需要调整时间间隔
+        try:
+            with message_buffer_lock:
+                if message_buffer:
+                    buffer_copy = message_buffer.copy()
+                    message_buffer.clear()
+                else:
+                    buffer_copy = {}
+            with client_subscriptions_lock:
+                subscriptions_copy = client_subscriptions.copy()
+
+            for sid, topics in subscriptions_copy.items():
+                client_messages = []
+                for topic in topics:
+                    if topic in buffer_copy:
+                        client_messages.extend(buffer_copy[topic])
+                    elif "+" in topic or "#" in topic:
+                        # Handle wildcard topics
+                        pattern = re.compile(
+                            topic.replace("+", "[^/]+").replace("#", ".*")
+                        )
+                        for msg_topic, messages in buffer_copy.items():
+                            if pattern.match(msg_topic):
+                                client_messages.extend(messages)
+                if client_messages:
+                    socketio.emit("mqtt_message", client_messages, room=sid)
+            eventlet.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Error in send_periodic_messages: {e}")
 
 
-import eventlet
-# def send_periodic_messages():
-#     while True:
-#         # 模擬資料
-#         socketio.emit('mqtt_message', apple_temp)
-#         eventlet.sleep(1)  
-
-# @socketio.on('connect')
-# def handle_connect():
-#     print('Client connected')
-#     socketio.start_background_task(target=send_periodic_messages)
-
-
-
-pending_data = []
-
-@socketio.on('add_to_pending')
-def add_to_pending(data):
-    pending_data.append(data)
-    print('get暫存資料:', data)
-
-def send_pending_data():
-    for data in pending_data:
-        # 這裡可以實現將資料發送至指定位置
-        print('發送暫存資料:', data)
-    pending_data.clear()
-
-
-# @socketio.on('monitor')
-# def start_monitor():
-#     def monitor_timer():
-#         eventlet.sleep(10)  # 5 分鐘
-#         socketio.emit('monitor_timeout', {'message': 'monitor 是否繼續?'})
-
-#     # threading.Thread(target=monitor_timer).start()
-#     socketio.start_background_task(monitor_timer)
-
-
-@socketio.on('connect')
+@socketio.on("connect")
 def handle_connect():
-    print('Client connected:', request.sid)
+    """Handle client connection."""
+    logger.info(f"Client connected: {request.sid}")
     with client_subscriptions_lock:
         client_subscriptions[request.sid] = set()
     with clients_monitored_tags_lock:
         clients_monitored_tags[request.sid] = set()
 
-@socketio.on('disconnect')
+
+@socketio.on("disconnect")
 def handle_disconnect():
-    print('Client disconnected:', request.sid)
+    """Handle client disconnection."""
+    logger.info(f"Client disconnected: {request.sid}")
     with client_subscriptions_lock:
         client_subscriptions.pop(request.sid, None)
 
@@ -349,109 +343,93 @@ def handle_disconnect():
         monitored_tags = clients_monitored_tags.pop(request.sid, None)
         if monitored_tags:
             for tag in monitored_tags:
-                print(f"Stopping monitoring tag: {tag} for client {request.sid}")
-                # 執行清理邏輯，例如發送停止監控指令
-                tag_control({'tag': tag, 'control': False})
+                logger.info(
+                    f"Stopping monitoring tag: {tag} for client {request.sid}"
+                )
+                tag_control({"tag": tag, "control": False})
 
-    print(f"Client {request.sid} disconnected")
 
-@socketio.on('update_monitored_tags')
+@socketio.on("update_monitored_tags")
 def update_monitored_tags(data):
-    # 更新客戶端的 monitoredTags 集合
+    """Update monitored tags for a client."""
     client_sid = request.sid
-    tags = data.get('tags', [])
+    tags = data.get("tags", [])
     with clients_monitored_tags_lock:
         clients_monitored_tags[client_sid] = set(tags)
-    print(f"Updated monitored tags for client {client_sid}: {tags}")
+    logger.info(f"Updated monitored tags for client {client_sid}: {tags}")
 
 
-@socketio.on('subscribe')
+@socketio.on("subscribe")
 def handle_subscribe(data):
-    topic = data.get('topic')
-    # print(topic)
+    """Handle topic subscription from client."""
+    topic = data.get("topic")
     sid = request.sid
     with client_subscriptions_lock:
         if sid not in client_subscriptions:
             client_subscriptions[sid] = set()
-        # 複製訂閱主題
+        # Copy last subscriptions
         last_topics[sid] = client_subscriptions[sid].copy()
-        # 取消之前訂閱
+        # Unsubscribe previous topics
         if last_topics[sid]:
             topics_to_unsubscribe = list(last_topics[sid])
             mqtt_client.unsubscribe(topics_to_unsubscribe)
-            # print(f"取消訂閱: {topics_to_unsubscribe}")
-            # 清空之前的訂閱
             client_subscriptions[sid].clear()
-        # 加新的訂閱 
+        # Add new subscription
         client_subscriptions[sid].add(topic)
 
-    # 可选地，在此处管理MQTT订阅
-    mqtt_client.subscribe(topic,qos=1)    
-    # 發舊資料
+    try:
+        mqtt_client.subscribe(topic, qos=1)
+    except Exception as e:
+        logger.error(f"Error subscribing to topic {topic}: {e}")
+
+    # Send cached messages
     combined_list = []
     if topic in last_message_cache:
-        for i in last_message_cache[topic]:
-            combined_list.append(last_message_cache[topic][i]) 
-        socketio.emit('mqtt_message', combined_list, room=sid)
-    elif '+' in topic:
-        pattern = re.compile(topic.replace('+', '[^/]+'))
-        for topic, tags in last_message_cache.items():
-            if pattern.match(topic):
-                for _, tag_value in tags.items():
-                    # 如果匹配到，将其加入到结果中
-                    combined_list.append(tag_value)
-        socketio.emit('mqtt_message', combined_list, room=sid)
-    elif '#' in topic:
-        for topic, tags in last_message_cache.items():
-            for _, tag_value in tags.items():
-                combined_list.append(tag_value)
-        socketio.emit('mqtt_message', combined_list, room=sid)
+        combined_list.extend(last_message_cache[topic].values())
+    elif "+" in topic or "#" in topic:
+        pattern = re.compile(topic.replace("+", "[^/]+").replace("#", ".*"))
+        for msg_topic, tags in last_message_cache.items():
+            if pattern.match(msg_topic):
+                combined_list.extend(tags.values())
+    if combined_list:
+        socketio.emit("mqtt_message", combined_list, room=sid)
 
     socketio.start_background_task(target=send_periodic_messages)
 
 
-@socketio.on('connect', namespace='/index')
-def handle_connect(auth):
-    username = auth.get('username')
-    password = auth.get('password')
-    if username == 'a' and password == 'ss':
-        print(f"{username} 已成功連接")
-    else:
-        print("認證失敗")
-        disconnect()
-
-
-@socketio.on('tag_control')
+@socketio.on("tag_control")
 def tag_control(data):
-    print(data)
-    tag = data.get('tag')
-    control = data.get('control')
+    """Handle tag control from client."""
+    tag = data.get("tag")
+    control = data.get("control")
 
-    # 通過 SocketIO 通知 OPC UA Server 將數據寫入
-    socketio.emit('control_tag', {'tag': tag, 'control': control})
+    # Notify OPC UA Server via SocketIO
+    socketio.emit("control_tag", {"tag": tag, "control": control})
 
     if not control:
         sid = request.sid
         for topic, tags in last_message_cache.items():
-            if tag in tags:                
-                value = last_message_cache[topic][tag]['Value']
-                socketio.emit('mqtt_message', [last_message_cache[topic][tag]], room=sid)
-                # 給 OPCUA
-                socketio.emit('tag_value_updata', {'tag': tag, 'value': value})
+            if tag in tags:
+                value = tags[tag]["Value"]
+                socketio.emit("mqtt_message", [tags[tag]], room=sid)
+                # Notify OPC UA Server
+                socketio.emit("tag_value_update", {"tag": tag, "value": value})
                 break
 
 
-
-
-@socketio.on('set_tag_value')
+@socketio.on("set_tag_value")
 def set_tag_value(data):
-    print(data)
-    tag = data.get('tag')
-    value = data.get('value')
+    """Set tag value as per client request."""
+    # print(data)
+    tag = data.get("tag")
+    value = data.get("value")
 
-    # 通過 SocketIO 通知 OPC UA Server 將數據寫入
-    socketio.emit('tag_value_updata', {'tag': tag, 'value': value})
+    # Notify OPC UA Server via SocketIO
+    socketio.emit('tag_value_update', {'tag': tag, 'value': value})
 
 
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', debug=False)
+if __name__ == "__main__":
+    try:
+        socketio.run(app, host="0.0.0.0",port = 5000, debug=False)
+    except Exception as e:
+        logger.error(f"Error running app: {e}")
