@@ -4,7 +4,7 @@ var socket;
 
 $(document).ready(function() {
 
-    let isDebugMode = true;
+    let isDebugMode = false;
     if (!isDebugMode) {
         console.log = function() {};
     }
@@ -45,8 +45,6 @@ $(document).ready(function() {
             isCheckboxAdded = true;
             $btn.removeClass('btn-outline-primary').addClass('btn-danger');
             updateTable();
-            // socket.emit('monitor'); // 如果需要，取消註釋此行
-
             startMonitoring();
         } else {
             stopMonitor();
@@ -68,7 +66,6 @@ $(document).ready(function() {
                 }
             } else {
                 clearInterval(countdownInterval);
-                // alert('Timeout - 自動停止monitor');
                 $('#continueModal').modal('hide');
                 stopMonitor();
                 $btn.removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
@@ -92,7 +89,6 @@ $(document).ready(function() {
         $('#continueModal').modal('show');
         let modalCountdown = 10;
         $('#modalCountdown').text(modalCountdown);
-    
         // 每秒更新模態框中的倒數計時
         modalCountdownInterval = setInterval(function() {
             modalCountdown--;
@@ -101,18 +97,17 @@ $(document).ready(function() {
                 clearInterval(modalCountdownInterval);
                 $('#continueModal').modal('hide');
                 stopMonitor();
-                // $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
             }
         }, 1000);
     }
     
-    $('#continueBtn').click(function() {
+    $('#continue-btn').click(function() {
         // 用戶選擇繼續監控
         clearInterval(modalCountdownInterval);
         $('#continueModal').modal('hide');
         resetCountdown();
     });
-    $('#stopBtn').click(function() {
+    $('#stop-btn').click(function() {
         clearInterval(modalCountdownInterval);
         $('#continueModal').modal('hide');
         stopMonitor();
@@ -141,7 +136,7 @@ $(document).ready(function() {
         $('#search-input').val('').trigger('input');
     });
 
-    // 監聽單個復選框變更事件（使用事件委派）
+    // 監聽單個checkbox 變更事件
     $(document).on('change', '.monitor-checkbox', function() {
         let tag = $(this).data('tag');
         // console.log('Tag control:', tag, $(this).is(':checked'));
@@ -156,12 +151,10 @@ $(document).ready(function() {
             }
         }
         updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
-        updateTable(); // 更新表格顯示
-
+        updateTable(); 
         // 檢查是否所有子復選框都被選中
         var allTags = Object.values(currentData).map(item => item.OpcuaNode);
         var allChecked = allTags.length > 0 && allTags.every(tag => monitoredTags.has(tag));
-
         // 更新全選復選框的狀態
         $('#select-all-checkbox').prop('checked', allChecked);
     });
@@ -172,7 +165,6 @@ $(document).ready(function() {
     // 監聽全選復選框變更事件（使用事件委派）
     $(document).on('change', '#select-all-checkbox', function() {
         var isChecked = $(this).is(':checked');
-
         // 防止重複觸發子復選框的change事件
         $('.monitor-checkbox').each(function() {
             var tag = $(this).data('tag');
@@ -191,7 +183,6 @@ $(document).ready(function() {
                 }
             }
             updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
-
             // 設置子復選框的狀態
             $(this).prop('checked', isChecked);
         });
@@ -220,8 +211,6 @@ $(document).ready(function() {
         }
         console.log('current tag :',currentData[tag])
         if (currentData[tag]) {
-            // console.log('current:',currentData[tag])
-            // console.log("value:",parseFloat(value))
             currentData[tag].value = parseFloat(value);
             const now = new Date();
             const formattedTime = now.getFullYear() + "-" +
@@ -233,21 +222,10 @@ $(document).ready(function() {
             currentData[tag].sourcetime = formattedTime;
             currentData[tag].status = 'Good';
             currentData[tag].inputValue = '';
-            console.log('current:',currentData[tag])
         }
-        console.log('allTagsData:',allTagsData[tag])
         if (allTagsData[tag]){
-            console.log(4)
-            
-            // console.log('alltagsdata:',allTagsData[tag])
-            // console.log("alltagsdata:", JSON.stringify(allTagsData[tag], null, 4));
-
-            // console.log("value:",parseFloat(value))
             allTagsData[tag].value = parseFloat(value);
             allTagsData[tag].inputValue = '';
-            // console.log('alltagsdata:',allTagsData[tag])
-            // console.log("alltagsdata:", JSON.stringify(allTagsData[tag], null, 4));
-
         }
         $(this).siblings('.entry-input').val('');
         updateTable();
@@ -256,9 +234,6 @@ $(document).ready(function() {
     $(document).on('input', '.entry-input', function() {
         let tag = $(this).data('tag');
         let value = $(this).val();
-        let originalValue = value; // 保存原始值以便比較
-
-
         // 如果輸入以負號開頭，保留負號，否則移除
         if (value.startsWith('-')) {
             // 保留負號，並移除其餘部分的非數字和非小數點字符
@@ -267,12 +242,10 @@ $(document).ready(function() {
             // 移除所有非數字和非小數點字符
             value = value.replace(/[^0-9.]/g, '');
         }
-
         // 處理以小數點開頭的情況
         if (value.startsWith('.') && value.length === 1) {
             value = '0.';
         }
-
         let decimalCount = (value.match(/\./g) || []).length;
         if (decimalCount > 1) {
             value = value.slice(0, -1);
@@ -286,7 +259,7 @@ $(document).ready(function() {
     $(document).on('keydown', '.entry-input', function(event) {
         if (event.key === 'Enter') {
             event.preventDefault(); // 防止表單提交或其他默認行為
-            $(this).closest('.input-group').find('.ok-btn').click(); // 觸發相應的 OK 按鈕
+            $(this).closest('.input-group').find('.ok-btn').click(); // 觸發OK
         }
     });
 
@@ -298,27 +271,13 @@ $(document).ready(function() {
         isInteracting = false;
     });
 
-    let isMouseOverSearch = false;
-    // 在搜尋輸入框上的 focus 和 blur 事件
+    // 在搜尋輸入框上的 focus 事件
     $('#search-input').on('focus', function() {
         isSearching = true;
         previousSubscriptionTopic = currentSubscriptionTopic;
         currentSubscriptionTopic = 'Topic/#';
         socket.emit('subscribe', { topic: currentSubscriptionTopic });
     });
-
-    // $('#search-input').on('blur', function() {
-    //     isSearching = false;
-    //     if (previousSubscriptionTopic) {
-    //         currentSubscriptionTopic = previousSubscriptionTopic;
-    //         socket.emit('subscribe', { topic: currentSubscriptionTopic });
-    //     }
-    //     $('#search-input').val('');
-    //     currentSearchValue = '';
-    //     updateTable();
-    // });
-
-
 
     $('#search-input').on('input', function() {
         currentSearchValue = $(this).val().toLowerCase();
@@ -339,12 +298,11 @@ $(document).ready(function() {
             socket.emit('tag_control', { tag: tag, control: false });
         });
         monitoredTags.clear(); // 清空已監控的標籤集合
-        updateMonitoredTagsOnServer(); // 更新伺服器端的 monitoredTags
+        updateMonitoredTagsOnServer(); 
         // 更新表格中復選框狀態
         $('.monitor-checkbox').prop('checked', false);
         isCheckboxAdded = false;
         $('#monitor-btn').removeClass('btn-danger').addClass('btn-outline-primary').text('Simulator');
-
         updateTable();
     }
 
@@ -358,17 +316,12 @@ $(document).ready(function() {
             }, 100);
         }
     }
-    // socket.on('lient_close', function() {
-    //     stopMonitor();
-    // });
 
 
     socket.on('mqtt_message', function(messages) {
         console.log('Received MQTT message:', messages);
         messages.forEach(function(data) {
             var tag = data.Tag;
-            // console.log('Tag:', tag);
-            console.log('Data:', data);
             // 更新 allTagsData
             if (!allTagsData[tag]) {
                 console.log(5)
@@ -382,18 +335,14 @@ $(document).ready(function() {
                 };
             } 
             else {
-                console.log(6)
                 if (!monitoredTags.has(tag)){
-                    console.log(9)
                     allTagsData[tag].value = data.Value;
                     allTagsData[tag].sourcetime = data.SourceTime.split('.')[0];
                     allTagsData[tag].status = data.Quality;
                 }
             }
-
             // 如果標籤存在於 currentData，則更新
             if (currentData[tag] && !monitoredTags.has(tag)) {
-                console.log(7)
                 currentData[tag].value = data.Value;
                 currentData[tag].sourcetime = data.SourceTime.split('.')[0];
                 currentData[tag].status = data.Quality;
@@ -432,7 +381,7 @@ $(document).ready(function() {
         console.error("Error fetching tree data: " + textStatus, errorThrown);
     });
 
-    // 新增的函數，用於從整個 treeData 中加載所有標籤
+    // 從整個 treeData 加載所有checkbox標籤
     function loadAllTagsData(treeData) {
         for (let iedKey in treeData) {
             let ied = treeData[iedKey];
@@ -484,7 +433,6 @@ $(document).ready(function() {
 
                     if (parentNodeId != null) {
                         // 子節點
-                        // 根據您的資料結構調整索引
                         ied = nodeIdMap[parentNodeId+1].text;
                         type = data.text;
                         items = treeData[ied][type];
@@ -498,13 +446,11 @@ $(document).ready(function() {
                         ied = data.text;
                         topic = 'Topic/+/'+ ied;
                         items = [];
-
                         for (const [type, items_temp] of Object.entries(treeData[ied])) {
                             items_temp.forEach(item => {
-                                // 可選：確保每個項目都包含 Type 屬性
                                 items.push({
                                     ...item,
-                                    Type: type // 若每個項目已包含 Type 屬性，可省略此行
+                                    Type: type 
                                 });
                             });
                         }
@@ -527,7 +473,6 @@ $(document).ready(function() {
                         }
                         currentData[tag].inputValue = '';   
                     });
-
                     updateTable();
                 }
             });
@@ -548,8 +493,7 @@ $(document).ready(function() {
 
     function updateTable() {
         var data;
-
-        // 如果有搜索條件，先過濾數據
+        // 如果有搜索條件，先過濾
         if (isSearching) {
             if (currentSearchValue) {
                 data = Object.values(allTagsData).filter(function(item) {
@@ -620,16 +564,12 @@ $(document).ready(function() {
                 } else {
                     tableHtml += '<td></td>'; // 如果未選中，添加一個空的<td>
                 }
-            }
-    
+            }    
             tableHtml += '</tr>';
         }
-        tableHtml += '</tbody>';
-    
+        tableHtml += '</tbody>';    
         $('#data-table').html(tableHtml);
     }
-
-
 });
 
 
